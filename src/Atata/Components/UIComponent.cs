@@ -8,9 +8,12 @@ public abstract class UIComponent
     internal const string SubComponentSeparator = " / ";
 
     /// <summary>
-    /// Gets the <see cref="AtataContext"/> instance with which this component is associated.
+    /// Gets the associated session.
     /// </summary>
-    public abstract AtataContext Context { get; }
+    public abstract WebDriverSession Session { get; }
+
+    [Obsolete("Instead use either Session.Context or corresponding member of Session.")] // Obsolete since v4.0.0.
+    public AtataContext Context => Session.Context;
 
     /// <inheritdoc cref="IUIComponent{TOwner}.Owner"/>
     public UIComponent Owner { get; internal set; }
@@ -18,9 +21,9 @@ public abstract class UIComponent
     /// <inheritdoc cref="IUIComponent{TOwner}.Parent"/>
     public UIComponent Parent { get; internal set; }
 
-    protected internal ILogManager Log => Context.Log;
+    protected internal ILogManager Log => Session.Log;
 
-    protected internal IWebDriver Driver => Context.Driver;
+    protected internal IWebDriver Driver => Session.Driver;
 
     /// <inheritdoc cref="IUIComponent{TOwner}.ScopeSource"/>
     public abstract ScopeSource ScopeSource { get; }
@@ -106,7 +109,7 @@ public abstract class UIComponent
 
         SearchOptions actualSearchOptions = searchOptions ?? new SearchOptions();
 
-        var cache = Context.UIComponentAccessChainScopeCache;
+        var cache = Session.UIComponentAccessChainScopeCache;
         bool isActivatedAccessChainCache = cache.AcquireActivation();
 
         IWebElement element;
@@ -237,7 +240,7 @@ public abstract class UIComponent
             new ExecuteBehaviorLogSection(this, behavior),
             () => StaleSafely.Execute(
                 _ => behaviorExecutionAction.Invoke(behavior),
-                Context.ElementFindTimeout));
+                Session.ElementFindTimeout));
     }
 
     /// <inheritdoc cref="IUIComponent{TOwner}.ExecuteBehavior{TBehaviorAttribute}(Action{TBehaviorAttribute})"/>
@@ -252,7 +255,7 @@ public abstract class UIComponent
             new ExecuteBehaviorLogSection(this, behavior),
             () => StaleSafely.Execute(
                 _ => behaviorExecutionFunction.Invoke(behavior),
-                Context.ElementFindTimeout));
+                Session.ElementFindTimeout));
     }
 
     protected TAttribute GetAttributeOrThrow<TAttribute>() =>

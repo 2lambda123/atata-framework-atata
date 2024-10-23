@@ -30,7 +30,7 @@ public class LogConsumerConfiguration : ICloneable
         LogLevel minLevel,
         LogSectionEndOption sectionEnd)
     {
-        Consumer = consumer;
+        Consumer = consumer.CheckNotNull(nameof(consumer));
         MinLevel = minLevel;
         SectionEnd = sectionEnd;
     }
@@ -52,23 +52,50 @@ public class LogConsumerConfiguration : ICloneable
     /// </summary>
     public LogSectionEndOption SectionEnd { get; internal set; }
 
-    /// <summary>
-    /// Gets or sets the message nesting level indent.
-    /// The default value is <c>"- "</c>.
-    /// </summary>
-    public string MessageNestingLevelIndent { get; set; } = "- ";
+    [Obsolete("Use NestingLevelIndent instead.")] // Obsolete since v4.0.0.
+    public string MessageNestingLevelIndent
+    {
+        get => NestingLevelIndent;
+        set => NestingLevelIndent = value;
+    }
 
     /// <summary>
-    /// Gets or sets the message start section prefix.
-    /// The default value is <c>"&gt; "</c>.
+    /// Gets or sets the nesting level indent.
+    /// The default value is <c>"- "</c>.
     /// </summary>
+    public string NestingLevelIndent { get; set; } = "- ";
+
+    [Obsolete("Use SectionStartPrefix instead.")] // Obsolete since v4.0.0.
     public string MessageStartSectionPrefix { get; set; } = "> ";
 
     /// <summary>
-    /// Gets or sets the message end section prefix.
+    /// Gets or sets the prefix of section start.
+    /// The default value is <c>"&gt; "</c>.
+    /// </summary>
+    public string SectionStartPrefix { get; set; } = "> ";
+
+    [Obsolete("Use SectionEndPrefix instead.")] // Obsolete since v4.0.0.
+    public string MessageEndSectionPrefix { get; set; } = "< ";
+
+    /// <summary>
+    /// Gets or sets the prefix of section end.
     /// The default value is <c>"&lt; "</c>.
     /// </summary>
-    public string MessageEndSectionPrefix { get; set; } = "< ";
+    public string SectionEndPrefix { get; set; } = "< ";
+
+    /// <summary>
+    /// Gets or sets a value indicating whether session log should be embedded
+    /// in <see cref="AtataContext"/> log hierarchy or it should follow its own hierarchy.
+    /// The default value is <see langword="true"/>.
+    /// </summary>
+    public bool EmbedSessionLog { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether external source log should be embedded
+    /// in <see cref="AtataContext"/> log hierarchy or it should follow its own hierarchy.
+    /// The default value is <see langword="false"/>.
+    /// </summary>
+    public bool EmbedExternalSourceLog { get; set; }
 
     /// <summary>
     /// Creates a new object that is a copy of the current instance.

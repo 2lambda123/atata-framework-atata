@@ -2,7 +2,7 @@
 
 namespace Atata.IntegrationTests.Controls;
 
-public class ControlTests : UITestFixture
+public class ControlTests : WebDriverSessionTestSuite
 {
     protected override bool ReuseDriver => false;
 
@@ -20,12 +20,12 @@ public class ControlTests : UITestFixture
     [Test]
     public void ScrollTo_WithScrollsUsingActionsAttribute()
     {
-        AtataContext.Current.Driver.Manage().Window.Size = new Size(400, 400);
+        WebDriverSession.Current.Driver.Manage().Window.Size = new Size(400, 400);
 
         Go.To<BasicControlsPage>()
             .OptionBWithScrollUsingActions.ScrollTo();
 
-        object yOffset = AtataContext.Current.Driver.AsScriptExecutor().ExecuteScript("return window.pageYOffset;");
+        object yOffset = WebDriverSession.Current.Driver.AsScriptExecutor().ExecuteScript("return window.pageYOffset;");
 
         Assert.That(yOffset, Is.GreaterThan(200));
     }
@@ -33,12 +33,12 @@ public class ControlTests : UITestFixture
     [Test]
     public void ScrollTo_WithScrollsUsingScriptAttribute()
     {
-        AtataContext.Current.Driver.Manage().Window.Size = new Size(400, 400);
+        WebDriverSession.Current.Driver.Manage().Window.Size = new Size(400, 400);
 
         Go.To<BasicControlsPage>()
             .OptionBWithScrollUsingScript.ScrollTo();
 
-        object yOffset = AtataContext.Current.Driver.AsScriptExecutor().ExecuteScript("return window.pageYOffset;");
+        object yOffset = WebDriverSession.Current.Driver.AsScriptExecutor().ExecuteScript("return window.pageYOffset;");
 
         Assert.That(yOffset, Is.GreaterThan(200));
     }
@@ -55,7 +55,7 @@ public class ControlTests : UITestFixture
             .TelInput.Blur()
             .ActiveControl.DomProperties.Value.Should.Not.Equal("123");
 
-    public class IsFocused : UITestFixture
+    public class IsFocused : WebDriverSessionTestSuite
     {
         [Test]
         public void AfterSet() =>
@@ -77,7 +77,7 @@ public class ControlTests : UITestFixture
                 .TelInput.IsFocused.Should.BeFalse();
     }
 
-    public class ComponentName : UITestFixture
+    public class ComponentName : WebDriverSessionTestSuite
     {
         [Test]
         public void FromPropertyName() =>

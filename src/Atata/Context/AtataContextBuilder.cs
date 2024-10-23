@@ -1,330 +1,210 @@
-﻿using OpenQA.Selenium.Chrome;
-using OpenQA.Selenium.Chromium;
-using OpenQA.Selenium.Edge;
-using OpenQA.Selenium.Firefox;
-using OpenQA.Selenium.IE;
-using OpenQA.Selenium.Remote;
-using OpenQA.Selenium.Safari;
-
-namespace Atata;
+﻿namespace Atata;
 
 /// <summary>
 /// Represents the builder of <see cref="AtataContext"/>.
 /// </summary>
-public class AtataContextBuilder
+public sealed class AtataContextBuilder : ICloneable
 {
-    public AtataContextBuilder(AtataBuildingContext buildingContext) =>
-        BuildingContext = buildingContext.CheckNotNull(nameof(buildingContext));
+    public const string DefaultArtifactsPathTemplate = "{test-suite-name-sanitized:/*}{test-name-sanitized:/*}";
+
+    private TimeSpan? _waitingTimeout;
+
+    private TimeSpan? _waitingRetryInterval;
+
+    private TimeSpan? _verificationTimeout;
+
+    private TimeSpan? _verificationRetryInterval;
+
+    internal AtataContextBuilder(AtataContextScope? contextScope)
+        : this(contextScope, ResolveSessionDefaultStartScopes(contextScope))
+    {
+    }
+
+    internal AtataContextBuilder(AtataContextScope? contextScope, AtataSessionStartScopes? sessionStartScopes)
+    {
+        Scope = contextScope;
+        Sessions = new(this, [], sessionStartScopes);
+    }
 
     /// <summary>
-    /// Gets the building context.
+    /// Gets the parent <see cref="AtataContext"/>.
+    /// When it is <see langword="null"/>, will try to find a parent context automatically
+    /// searching in <see cref="AtataContext.Global"/> descendant contexts considering this
+    /// builder's <see cref="Scope"/>, <see cref="TestNameFactory"/>,
+    /// <see cref="TestSuiteTypeFactory"/> and <see cref="TestSuiteNameFactory"/>.
     /// </summary>
-    public AtataBuildingContext BuildingContext { get; internal set; }
+    public AtataContext ParentContext { get; private set; }
+
+    /// <summary>
+    /// Gets the scope of context.
+    /// </summary>
+    public AtataContextScope? Scope { get; private set; }
+
+    public AtataSessionsBuilder Sessions { get; private set; }
 
     /// <summary>
     /// Gets the builder of context attributes,
     /// which provides the functionality to add extra attributes to different metadata levels:
     /// global, assembly, component and property.
     /// </summary>
-    public AttributesAtataContextBuilder Attributes => new(BuildingContext);
+    public AttributesBuilder Attributes { get; private set; } = new(new());
 
     /// <summary>
     /// Gets the builder of event subscriptions,
     /// which provides the methods to subscribe to Atata and custom events.
     /// </summary>
-    public EventSubscriptionsAtataContextBuilder EventSubscriptions => new(BuildingContext);
+    public EventSubscriptionsBuilder EventSubscriptions { get; private set; } = new();
 
     /// <summary>
     /// Gets the builder of log consumers,
     /// which provides the methods to add log consumers.
     /// </summary>
-    public LogConsumersAtataContextBuilder LogConsumers => new(BuildingContext);
+    public LogConsumersBuilder LogConsumers { get; private set; } = new();
 
     /// <summary>
-    /// Gets the builder of screenshot configuration.
+    /// Gets the variables dictionary.
     /// </summary>
-    public ScreenshotsAtataContextBuilder Screenshots => new(BuildingContext);
+    public IDictionary<string, object> Variables { get; private set; } = new Dictionary<string, object>();
 
     /// <summary>
-    /// Gets the builder of page snapshot configuration.
+    /// Gets the list of secret strings to mask in log.
     /// </summary>
-    public PageSnapshotsAtataContextBuilder PageSnapshots => new(BuildingContext);
+    public List<SecretStringToMask> SecretStringsToMaskInLog { get; private set; } = [];
 
     /// <summary>
-    /// Gets the builder of browser logs configuration.
+    /// Gets or sets the factory method of the test name.
     /// </summary>
-    public BrowserLogsAtataContextBuilder BrowserLogs => new(BuildingContext);
+    public Func<string> TestNameFactory { get; set; }
 
     /// <summary>
-    /// Returns an existing or creates a new builder for <typeparamref name="TDriverBuilder"/> by the specified alias.
+    /// Gets or sets the factory method of the test suite name.
     /// </summary>
-    /// <typeparam name="TDriverBuilder">The type of the driver builder.</typeparam>
-    /// <param name="alias">The driver alias.</param>
-    /// <param name="driverBuilderCreator">The function that creates a driver builder.</param>
-    /// <returns>The <typeparamref name="TDriverBuilder"/> instance.</returns>
-    public TDriverBuilder ConfigureDriver<TDriverBuilder>(string alias, Func<TDriverBuilder> driverBuilderCreator)
-        where TDriverBuilder : AtataContextBuilder, IDriverFactory
+    public Func<string> TestSuiteNameFactory { get; set; }
+
+    /// <summary>
+    /// Gets or sets the factory method of the test suite type.
+    /// </summary>
+    public Func<Type> TestSuiteTypeFactory { get; set; }
+
+    /// <summary>
+    /// Gets or sets the Artifacts directory path template.
+    /// The default value is <c>"{test-suite-name-sanitized:/*}{test-name-sanitized:/*}"</c>.
+    /// </summary>
+    public string ArtifactsPathTemplate { get; set; } = DefaultArtifactsPathTemplate;
+
+    /// <summary>
+    /// Gets the base retry timeout.
+    /// The default value is <c>5</c> seconds.
+    /// </summary>
+    public TimeSpan BaseRetryTimeout { get; internal set; } = AtataContext.DefaultRetryTimeout;
+
+    /// <summary>
+    /// Gets the base retry interval.
+    /// The default value is <c>500</c> milliseconds.
+    /// </summary>
+    public TimeSpan BaseRetryInterval { get; internal set; } = AtataContext.DefaultRetryInterval;
+
+    /// <summary>
+    /// Gets the waiting timeout.
+    /// The default value is taken from <see cref="BaseRetryTimeout"/>, which is equal to 5 seconds by default.
+    /// </summary>
+    public TimeSpan WaitingTimeout
     {
-        alias.CheckNotNullOrWhitespace(nameof(alias));
-        driverBuilderCreator.CheckNotNull(nameof(driverBuilderCreator));
-
-        var driverFactory = BuildingContext.GetDriverFactory(alias);
-
-        if (driverFactory is null)
-        {
-            driverFactory = driverBuilderCreator.Invoke();
-            BuildingContext.DriverFactories.Add(driverFactory);
-        }
-        else if (driverFactory is not TDriverBuilder)
-        {
-            throw new ArgumentException(
-                $@"Existing driver with ""{alias}"" alias has other factory type in {nameof(AtataContextBuilder)}.
-Expected: {typeof(TDriverBuilder).FullName}
-Actual: {driverFactory.GetType().FullName}",
-                nameof(alias));
-        }
-
-        return (TDriverBuilder)driverFactory;
+        get => _waitingTimeout ?? BaseRetryTimeout;
+        internal set => _waitingTimeout = value;
     }
 
     /// <summary>
-    /// Use the driver builder.
+    /// Gets the waiting retry interval.
+    /// The default value is taken from <see cref="BaseRetryInterval"/>, which is equal to <c>500</c> milliseconds by default.
     /// </summary>
-    /// <typeparam name="TDriverBuilder">The type of the driver builder.</typeparam>
-    /// <param name="driverBuilder">The driver builder.</param>
-    /// <returns>The <typeparamref name="TDriverBuilder"/> instance.</returns>
-    public TDriverBuilder UseDriver<TDriverBuilder>(TDriverBuilder driverBuilder)
-        where TDriverBuilder : AtataContextBuilder, IDriverFactory
+    public TimeSpan WaitingRetryInterval
     {
-        driverBuilder.CheckNotNull(nameof(driverBuilder));
-
-        BuildingContext.DriverFactories.Add(driverBuilder);
-        BuildingContext.DriverFactoryToUse = driverBuilder;
-
-        return driverBuilder;
+        get => _waitingRetryInterval ?? BaseRetryInterval;
+        internal set => _waitingRetryInterval = value;
     }
 
     /// <summary>
-    /// Sets the alias of the driver to use.
+    /// Gets the verification timeout.
+    /// The default value is taken from <see cref="BaseRetryTimeout"/>, which is equal to <c>5</c> seconds by default.
     /// </summary>
-    /// <param name="alias">The alias of the driver.</param>
+    public TimeSpan VerificationTimeout
+    {
+        get => _verificationTimeout ?? BaseRetryTimeout;
+        internal set => _verificationTimeout = value;
+    }
+
+    /// <summary>
+    /// Gets the verification retry interval.
+    /// The default value is taken from <see cref="BaseRetryInterval"/>, which is equal to <c>500</c> milliseconds by default.
+    /// </summary>
+    public TimeSpan VerificationRetryInterval
+    {
+        get => _verificationRetryInterval ?? BaseRetryInterval;
+        internal set => _verificationRetryInterval = value;
+    }
+
+    /// <summary>
+    /// Gets or sets the culture.
+    /// </summary>
+    public CultureInfo Culture { get; set; }
+
+    /// <summary>
+    /// Gets or sets the type of the assertion exception.
+    /// The default value is a type of <see cref="AssertionException"/>.
+    /// </summary>
+    public Type AssertionExceptionType { get; set; } = typeof(AssertionException);
+
+    /// <summary>
+    /// Gets or sets the type of the aggregate assertion exception.
+    /// The default value is a type of <see cref="AggregateAssertionException"/>.
+    /// The exception type should have public constructor with <c>IEnumerable&lt;AssertionResult&gt;</c> argument.
+    /// </summary>
+    public Type AggregateAssertionExceptionType { get; set; } = typeof(AggregateAssertionException);
+
+    /// <summary>
+    /// Gets or sets the aggregate assertion strategy.
+    /// The default value is an instance of <see cref="AtataAggregateAssertionStrategy"/>.
+    /// </summary>
+    public IAggregateAssertionStrategy AggregateAssertionStrategy { get; set; } = AtataAggregateAssertionStrategy.Instance;
+
+    /// <summary>
+    /// Gets or sets the strategy for warning assertion reporting.
+    /// The default value is an instance of <see cref="AtataWarningReportStrategy"/>.
+    /// </summary>
+    public IWarningReportStrategy WarningReportStrategy { get; set; } = AtataWarningReportStrategy.Instance;
+
+    /// <summary>
+    /// Gets or sets the strategy for assertion failure reporting.
+    /// The default value is an instance of <see cref="AtataAssertionFailureReportStrategy"/>.
+    /// </summary>
+    public IAssertionFailureReportStrategy AssertionFailureReportStrategy { get; set; } = AtataAssertionFailureReportStrategy.Instance;
+
+    /// <summary>
+    /// Sets the parent context.
+    /// </summary>
+    /// <param name="parentContext">The parent context.</param>
     /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
-    public AtataContextBuilder UseDriver(string alias)
+    public AtataContextBuilder UseParentContext(AtataContext parentContext)
     {
-        alias.CheckNotNullOrWhitespace(nameof(alias));
+        if (Scope == AtataContextScope.Global)
+            throw new InvalidOperationException($"Cannot set parent context for global {nameof(AtataContext)}.");
 
-        IDriverFactory driverFactory = BuildingContext.GetDriverFactory(alias);
-
-        if (driverFactory != null)
-            BuildingContext.DriverFactoryToUse = driverFactory;
-        else if (UsePredefinedDriver(alias) == null)
-            throw new ArgumentException($"No driver with \"{alias}\" alias defined.", nameof(alias));
-
+        ParentContext = parentContext;
         return this;
     }
-
-    /// <summary>
-    /// Use the specified driver instance.
-    /// </summary>
-    /// <param name="driver">The driver to use.</param>
-    /// <returns>The <see cref="CustomDriverAtataContextBuilder"/> instance.</returns>
-    public CustomDriverAtataContextBuilder UseDriver(IWebDriver driver)
-    {
-        driver.CheckNotNull(nameof(driver));
-
-        return UseDriver(() => driver);
-    }
-
-    /// <summary>
-    /// Use the custom driver factory method.
-    /// </summary>
-    /// <param name="driverFactory">The driver factory method.</param>
-    /// <returns>The <see cref="CustomDriverAtataContextBuilder"/> instance.</returns>
-    public CustomDriverAtataContextBuilder UseDriver(Func<IWebDriver> driverFactory)
-    {
-        driverFactory.CheckNotNull(nameof(driverFactory));
-
-        return UseDriver(new CustomDriverAtataContextBuilder(BuildingContext, driverFactory));
-    }
-
-    private IDriverFactory UsePredefinedDriver(string alias) =>
-        alias.ToLowerInvariant() switch
-        {
-            DriverAliases.Chrome => UseChrome(),
-            DriverAliases.Firefox => UseFirefox(),
-            DriverAliases.InternetExplorer => UseInternetExplorer(),
-            DriverAliases.Safari => UseSafari(),
-            DriverAliases.Edge => UseEdge(),
-            _ => null
-        };
-
-    /// <summary>
-    /// Sets the driver initialization stage.
-    /// The default value is <see cref="AtataContextDriverInitializationStage.Build"/>.
-    /// </summary>
-    /// <param name="stage">The stage.</param>
-    /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
-    public AtataContextBuilder UseDriverInitializationStage(AtataContextDriverInitializationStage stage)
-    {
-        BuildingContext.DriverInitializationStage = stage;
-        return this;
-    }
-
-    /// <summary>
-    /// Sets a value indicating whether to dispose the <see cref="AtataContext.Driver"/> when <see cref="AtataContext.Dispose"/> method is invoked.
-    /// The default value is <see langword="true"/>.
-    /// </summary>
-    /// <param name="disposeDriver">Whether to dispose driver.</param>
-    /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
-    public AtataContextBuilder UseDisposeDriver(bool disposeDriver)
-    {
-        BuildingContext.DisposeDriver = disposeDriver;
-        return this;
-    }
-
-    /// <summary>
-    /// Creates and returns a new builder for <see cref="ChromeDriver"/>
-    /// with default <see cref="DriverAliases.Chrome"/> alias.
-    /// Sets this builder as a one to use for a driver creation.
-    /// </summary>
-    /// <returns>The <see cref="ChromeAtataContextBuilder"/> instance.</returns>
-    public ChromeAtataContextBuilder UseChrome() =>
-        UseDriver(new ChromeAtataContextBuilder(BuildingContext));
-
-    /// <summary>
-    /// Creates and returns a new builder for <see cref="FirefoxDriver"/>
-    /// with default <see cref="DriverAliases.Firefox"/> alias.
-    /// Sets this builder as a one to use for a driver creation.
-    /// </summary>
-    /// <returns>The <see cref="FirefoxAtataContextBuilder"/> instance.</returns>
-    public FirefoxAtataContextBuilder UseFirefox() =>
-        UseDriver(new FirefoxAtataContextBuilder(BuildingContext));
-
-    /// <summary>
-    /// Creates and returns a new builder for <see cref="InternetExplorerDriver"/>
-    /// with default <see cref="DriverAliases.InternetExplorer"/> alias.
-    /// Sets this builder as a one to use for a driver creation.
-    /// </summary>
-    /// <returns>The <see cref="InternetExplorerAtataContextBuilder"/> instance.</returns>
-    public InternetExplorerAtataContextBuilder UseInternetExplorer() =>
-        UseDriver(new InternetExplorerAtataContextBuilder(BuildingContext));
-
-    /// <summary>
-    /// Creates and returns a new builder for <see cref="EdgeDriver"/>
-    /// with default <see cref="DriverAliases.Edge"/> alias.
-    /// Sets this builder as a one to use for a driver creation.
-    /// </summary>
-    /// <returns>The <see cref="EdgeAtataContextBuilder"/> instance.</returns>
-    public EdgeAtataContextBuilder UseEdge() =>
-        UseDriver(new EdgeAtataContextBuilder(BuildingContext));
-
-    /// <summary>
-    /// Creates and returns a new builder for <see cref="SafariDriver"/>
-    /// with default <see cref="DriverAliases.Safari"/> alias.
-    /// Sets this builder as a one to use for a driver creation.
-    /// </summary>
-    /// <returns>The <see cref="SafariAtataContextBuilder"/> instance.</returns>
-    public SafariAtataContextBuilder UseSafari() =>
-        UseDriver(new SafariAtataContextBuilder(BuildingContext));
-
-    /// <summary>
-    /// Creates and returns a new builder for <see cref="RemoteWebDriver"/>
-    /// with default <see cref="DriverAliases.Remote"/> alias.
-    /// Sets this builder as a one to use for a driver creation.
-    /// </summary>
-    /// <returns>The <see cref="RemoteDriverAtataContextBuilder"/> instance.</returns>
-    public RemoteDriverAtataContextBuilder UseRemoteDriver() =>
-        UseDriver(new RemoteDriverAtataContextBuilder(BuildingContext));
-
-    /// <summary>
-    /// Returns an existing or creates a new builder for <see cref="ChromeDriver"/> by the specified alias.
-    /// </summary>
-    /// <param name="alias">
-    /// The driver alias.
-    /// The default value is <see cref="DriverAliases.Chrome"/>.
-    /// </param>
-    /// <returns>The <see cref="ChromeAtataContextBuilder"/> instance.</returns>
-    public ChromeAtataContextBuilder ConfigureChrome(string alias = DriverAliases.Chrome) =>
-        ConfigureDriver(
-            alias,
-            () => new ChromeAtataContextBuilder(BuildingContext).WithAlias(alias));
-
-    /// <summary>
-    /// Returns an existing or creates a new builder for <see cref="FirefoxDriver"/> by the specified alias.
-    /// </summary>
-    /// <param name="alias">
-    /// The driver alias.
-    /// The default value is <see cref="DriverAliases.Firefox"/>.
-    /// </param>
-    /// <returns>The <see cref="FirefoxAtataContextBuilder"/> instance.</returns>
-    public FirefoxAtataContextBuilder ConfigureFirefox(string alias = DriverAliases.Firefox) =>
-        ConfigureDriver(
-            alias,
-            () => new FirefoxAtataContextBuilder(BuildingContext).WithAlias(alias));
-
-    /// <summary>
-    /// Returns an existing or creates a new builder for <see cref="InternetExplorerDriver"/> by the specified alias.
-    /// </summary>
-    /// <param name="alias">
-    /// The driver alias.
-    /// The default value is <see cref="DriverAliases.InternetExplorer"/>.
-    /// </param>
-    /// <returns>The <see cref="InternetExplorerAtataContextBuilder"/> instance.</returns>
-    public InternetExplorerAtataContextBuilder ConfigureInternetExplorer(string alias = DriverAliases.InternetExplorer) =>
-        ConfigureDriver(
-            alias,
-            () => new InternetExplorerAtataContextBuilder(BuildingContext).WithAlias(alias));
-
-    /// <summary>
-    /// Returns an existing or creates a new builder for <see cref="EdgeDriver"/> by the specified alias.
-    /// </summary>
-    /// <param name="alias">
-    /// The driver alias.
-    /// The default value is <see cref="DriverAliases.Edge"/>.
-    /// </param>
-    /// <returns>The <see cref="EdgeAtataContextBuilder"/> instance.</returns>
-    public EdgeAtataContextBuilder ConfigureEdge(string alias = DriverAliases.Edge) =>
-        ConfigureDriver(
-            alias,
-            () => new EdgeAtataContextBuilder(BuildingContext).WithAlias(alias));
-
-    /// <summary>
-    /// Returns an existing or creates a new builder for <see cref="SafariDriver"/> by the specified alias.
-    /// </summary>
-    /// <param name="alias">
-    /// The driver alias.
-    /// The default value is <see cref="DriverAliases.Safari"/>.
-    /// </param>
-    /// <returns>The <see cref="SafariAtataContextBuilder"/> instance.</returns>
-    public SafariAtataContextBuilder ConfigureSafari(string alias = DriverAliases.Safari) =>
-        ConfigureDriver(
-            alias,
-            () => new SafariAtataContextBuilder(BuildingContext).WithAlias(alias));
-
-    /// <summary>
-    /// Returns an existing or creates a new builder for <see cref="RemoteWebDriver"/> by the specified alias.
-    /// </summary>
-    /// <param name="alias">
-    /// The driver alias.
-    /// The default value is <see cref="DriverAliases.Remote"/>.
-    /// </param>
-    /// <returns>The <see cref="RemoteDriverAtataContextBuilder"/> instance.</returns>
-    public RemoteDriverAtataContextBuilder ConfigureRemoteDriver(string alias = DriverAliases.Remote) =>
-        ConfigureDriver(
-            alias,
-            () => new RemoteDriverAtataContextBuilder(BuildingContext).WithAlias(alias));
 
     /// <summary>
     /// Adds the variable.
     /// </summary>
     /// <param name="key">The variable key.</param>
     /// <param name="value">The variable value.</param>
-    /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
+    /// <returns>The same <see cref="AtataContextBuilder"/> instance.</returns>
     public AtataContextBuilder AddVariable(string key, object value)
     {
         key.CheckNotNullOrWhitespace(nameof(key));
 
-        BuildingContext.Variables[key] = value;
+        Variables[key] = value;
 
         return this;
     }
@@ -333,13 +213,13 @@ Actual: {driverFactory.GetType().FullName}",
     /// Adds the variables.
     /// </summary>
     /// <param name="variables">The variables to add.</param>
-    /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
+    /// <returns>The same <see cref="AtataContextBuilder"/> instance.</returns>
     public AtataContextBuilder AddVariables(IDictionary<string, object> variables)
     {
         variables.CheckNotNull(nameof(variables));
 
         foreach (var variable in variables)
-            BuildingContext.Variables[variable.Key] = variable.Value;
+            Variables[variable.Key] = variable.Value;
 
         return this;
     }
@@ -349,13 +229,13 @@ Actual: {driverFactory.GetType().FullName}",
     /// </summary>
     /// <param name="value">The secret string value.</param>
     /// <param name="mask">The mask, which should replace the secret string.</param>
-    /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
+    /// <returns>The same <see cref="AtataContextBuilder"/> instance.</returns>
     public AtataContextBuilder AddSecretStringToMaskInLog(string value, string mask = "{*****}")
     {
         value.CheckNotNullOrWhitespace(nameof(value));
         mask.CheckNotNullOrWhitespace(nameof(mask));
 
-        BuildingContext.SecretStringsToMaskInLog.Add(
+        SecretStringsToMaskInLog.Add(
             new SecretStringToMask(value, mask));
 
         return this;
@@ -370,7 +250,7 @@ Actual: {driverFactory.GetType().FullName}",
     {
         testNameFactory.CheckNotNull(nameof(testNameFactory));
 
-        BuildingContext.TestNameFactory = testNameFactory;
+        TestNameFactory = testNameFactory;
         return this;
     }
 
@@ -381,7 +261,7 @@ Actual: {driverFactory.GetType().FullName}",
     /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
     public AtataContextBuilder UseTestName(string testName)
     {
-        BuildingContext.TestNameFactory = () => testName;
+        TestNameFactory = () => testName;
         return this;
     }
 
@@ -394,7 +274,7 @@ Actual: {driverFactory.GetType().FullName}",
     {
         testSuiteNameFactory.CheckNotNull(nameof(testSuiteNameFactory));
 
-        BuildingContext.TestSuiteNameFactory = testSuiteNameFactory;
+        TestSuiteNameFactory = testSuiteNameFactory;
         return this;
     }
 
@@ -405,7 +285,7 @@ Actual: {driverFactory.GetType().FullName}",
     /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
     public AtataContextBuilder UseTestSuiteName(string testSuiteName)
     {
-        BuildingContext.TestSuiteNameFactory = () => testSuiteName;
+        TestSuiteNameFactory = () => testSuiteName;
         return this;
     }
 
@@ -418,7 +298,7 @@ Actual: {driverFactory.GetType().FullName}",
     {
         testSuiteTypeFactory.CheckNotNull(nameof(testSuiteTypeFactory));
 
-        BuildingContext.TestSuiteTypeFactory = testSuiteTypeFactory;
+        TestSuiteTypeFactory = testSuiteTypeFactory;
         return this;
     }
 
@@ -431,7 +311,7 @@ Actual: {driverFactory.GetType().FullName}",
     {
         testSuiteType.CheckNotNull(nameof(testSuiteType));
 
-        BuildingContext.TestSuiteTypeFactory = () => testSuiteType;
+        TestSuiteTypeFactory = () => testSuiteType;
         return this;
     }
 
@@ -458,28 +338,14 @@ Actual: {driverFactory.GetType().FullName}",
     }
 
     /// <summary>
-    /// Sets the base URL.
-    /// </summary>
-    /// <param name="baseUrl">The base URL.</param>
-    /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
-    public AtataContextBuilder UseBaseUrl(string baseUrl)
-    {
-        if (baseUrl != null && !Uri.IsWellFormedUriString(baseUrl, UriKind.Absolute))
-            throw new ArgumentException($"Invalid URL format \"{baseUrl}\".", nameof(baseUrl));
-
-        BuildingContext.BaseUrl = baseUrl;
-        return this;
-    }
-
-    /// <summary>
     /// Sets the base retry timeout.
     /// The default value is <c>5</c> seconds.
     /// </summary>
     /// <param name="timeout">The retry timeout.</param>
-    /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
+    /// <returns>The same <see cref="AtataContextBuilder"/> instance.</returns>
     public AtataContextBuilder UseBaseRetryTimeout(TimeSpan timeout)
     {
-        BuildingContext.BaseRetryTimeout = timeout;
+        BaseRetryTimeout = timeout;
         return this;
     }
 
@@ -488,94 +354,58 @@ Actual: {driverFactory.GetType().FullName}",
     /// The default value is <c>500</c> milliseconds.
     /// </summary>
     /// <param name="interval">The retry interval.</param>
-    /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
+    /// <returns>The same <see cref="AtataContextBuilder"/> instance.</returns>
     public AtataContextBuilder UseBaseRetryInterval(TimeSpan interval)
     {
-        BuildingContext.BaseRetryInterval = interval;
-        return this;
-    }
-
-    /// <summary>
-    /// Sets the element find timeout.
-    /// The default value is taken from <see cref="AtataBuildingContext.BaseRetryTimeout"/>, which is equal to <c>5</c> seconds by default.
-    /// </summary>
-    /// <param name="timeout">The retry timeout.</param>
-    /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
-    public AtataContextBuilder UseElementFindTimeout(TimeSpan timeout)
-    {
-        BuildingContext.ElementFindTimeout = timeout;
-        return this;
-    }
-
-    /// <summary>
-    /// Sets the element find retry interval.
-    /// The default value is taken from <see cref="AtataBuildingContext.BaseRetryInterval"/>, which is equal to <c>500</c> milliseconds by default.
-    /// </summary>
-    /// <param name="interval">The retry interval.</param>
-    /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
-    public AtataContextBuilder UseElementFindRetryInterval(TimeSpan interval)
-    {
-        BuildingContext.ElementFindRetryInterval = interval;
+        BaseRetryInterval = interval;
         return this;
     }
 
     /// <summary>
     /// Sets the waiting timeout.
-    /// The default value is taken from <see cref="AtataBuildingContext.BaseRetryTimeout"/>, which is equal to <c>5</c> seconds by default.
+    /// The default value is taken from <see cref="BaseRetryTimeout"/>, which is equal to <c>5</c> seconds by default.
     /// </summary>
     /// <param name="timeout">The retry timeout.</param>
-    /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
+    /// <returns>The same <see cref="AtataContextBuilder"/> instance.</returns>
     public AtataContextBuilder UseWaitingTimeout(TimeSpan timeout)
     {
-        BuildingContext.WaitingTimeout = timeout;
+        WaitingTimeout = timeout;
         return this;
     }
 
     /// <summary>
     /// Sets the waiting retry interval.
-    /// The default value is taken from <see cref="AtataBuildingContext.BaseRetryInterval"/>, which is equal to <c>500</c> milliseconds by default.
+    /// The default value is taken from <see cref="BaseRetryInterval"/>, which is equal to <c>500</c> milliseconds by default.
     /// </summary>
     /// <param name="interval">The retry interval.</param>
-    /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
+    /// <returns>The same <see cref="AtataContextBuilder"/> instance.</returns>
     public AtataContextBuilder UseWaitingRetryInterval(TimeSpan interval)
     {
-        BuildingContext.WaitingRetryInterval = interval;
+        WaitingRetryInterval = interval;
         return this;
     }
 
     /// <summary>
     /// Sets the verification timeout.
-    /// The default value is taken from <see cref="AtataBuildingContext.BaseRetryTimeout"/>, which is equal to <c>5</c> seconds by default.
+    /// The default value is taken from <see cref="BaseRetryTimeout"/>, which is equal to <c>5</c> seconds by default.
     /// </summary>
     /// <param name="timeout">The retry timeout.</param>
-    /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
+    /// <returns>The same <see cref="AtataContextBuilder"/> instance.</returns>
     public AtataContextBuilder UseVerificationTimeout(TimeSpan timeout)
     {
-        BuildingContext.VerificationTimeout = timeout;
+        VerificationTimeout = timeout;
         return this;
     }
 
     /// <summary>
     /// Sets the verification retry interval.
-    /// The default value is taken from <see cref="AtataBuildingContext.BaseRetryInterval"/>, which is equal to <c>500</c> milliseconds by default.
+    /// The default value is taken from <see cref="BaseRetryInterval"/>, which is equal to <c>500</c> milliseconds by default.
     /// </summary>
     /// <param name="interval">The retry interval.</param>
-    /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
+    /// <returns>The same <see cref="AtataContextBuilder"/> instance.</returns>
     public AtataContextBuilder UseVerificationRetryInterval(TimeSpan interval)
     {
-        BuildingContext.VerificationRetryInterval = interval;
-        return this;
-    }
-
-    /// <summary>
-    /// Sets the default control visibility.
-    /// The default value is <see cref="Visibility.Any"/>.
-    /// </summary>
-    /// <param name="visibility">The visibility.</param>
-    /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
-    public AtataContextBuilder UseDefaultControlVisibility(Visibility visibility)
-    {
-        BuildingContext.DefaultControlVisibility = visibility;
+        VerificationRetryInterval = interval;
         return this;
     }
 
@@ -587,7 +417,7 @@ Actual: {driverFactory.GetType().FullName}",
     /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
     public AtataContextBuilder UseCulture(CultureInfo culture)
     {
-        BuildingContext.Culture = culture;
+        Culture = culture;
         return this;
     }
 
@@ -621,7 +451,7 @@ Actual: {driverFactory.GetType().FullName}",
     {
         exceptionType.CheckIs<Exception>(nameof(exceptionType));
 
-        BuildingContext.AssertionExceptionType = exceptionType;
+        AssertionExceptionType = exceptionType;
         return this;
     }
 
@@ -648,77 +478,7 @@ Actual: {driverFactory.GetType().FullName}",
     {
         exceptionType.CheckIs<Exception>(nameof(exceptionType));
 
-        BuildingContext.AggregateAssertionExceptionType = exceptionType;
-        return this;
-    }
-
-    /// <summary>
-    /// Sets the default assembly name pattern that is used to filter assemblies to find types in them.
-    /// Modifies the <see cref="AtataBuildingContext.DefaultAssemblyNamePatternToFindTypes"/> property value of <see cref="BuildingContext"/>.
-    /// </summary>
-    /// <param name="pattern">The pattern.</param>
-    /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
-    public AtataContextBuilder UseDefaultAssemblyNamePatternToFindTypes(string pattern)
-    {
-        pattern.CheckNotNullOrWhitespace(nameof(pattern));
-
-        BuildingContext.DefaultAssemblyNamePatternToFindTypes = pattern;
-        return this;
-    }
-
-    /// <summary>
-    /// Sets the assembly name pattern that is used to filter assemblies to find component types in them.
-    /// Modifies the <see cref="AtataBuildingContext.AssemblyNamePatternToFindComponentTypes"/> property value of <see cref="BuildingContext"/>.
-    /// </summary>
-    /// <param name="pattern">The pattern.</param>
-    /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
-    public AtataContextBuilder UseAssemblyNamePatternToFindComponentTypes(string pattern)
-    {
-        pattern.CheckNotNullOrWhitespace(nameof(pattern));
-
-        BuildingContext.AssemblyNamePatternToFindComponentTypes = pattern;
-        return this;
-    }
-
-    /// <summary>
-    /// Sets the assembly name pattern that is used to filter assemblies to find attribute types in them.
-    /// Modifies the <see cref="AtataBuildingContext.AssemblyNamePatternToFindAttributeTypes"/> property value of <see cref="BuildingContext"/>.
-    /// </summary>
-    /// <param name="pattern">The pattern.</param>
-    /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
-    public AtataContextBuilder UseAssemblyNamePatternToFindAttributeTypes(string pattern)
-    {
-        pattern.CheckNotNullOrWhitespace(nameof(pattern));
-
-        BuildingContext.AssemblyNamePatternToFindAttributeTypes = pattern;
-        return this;
-    }
-
-    /// <summary>
-    /// Sets the assembly name pattern that is used to filter assemblies to find event types in them.
-    /// Modifies the <see cref="AtataBuildingContext.AssemblyNamePatternToFindEventTypes"/> property value of <see cref="BuildingContext"/>.
-    /// </summary>
-    /// <param name="pattern">The pattern.</param>
-    /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
-    public AtataContextBuilder UseAssemblyNamePatternToFindEventTypes(string pattern)
-    {
-        pattern.CheckNotNullOrWhitespace(nameof(pattern));
-
-        BuildingContext.AssemblyNamePatternToFindEventTypes = pattern;
-        return this;
-    }
-
-    /// <summary>
-    /// Sets the assembly name pattern that is used to filter assemblies to find event handler types in them.
-    /// Modifies the <see cref="AtataBuildingContext.AssemblyNamePatternToFindEventHandlerTypes"/> property value of <see cref="BuildingContext"/>.
-    /// </summary>
-    /// <param name="pattern">The pattern.</param>
-    /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
-    public AtataContextBuilder UseAssemblyNamePatternToFindEventHandlerTypes(string pattern)
-    {
-        pattern.CheckNotNullOrWhitespace(nameof(pattern));
-
-        BuildingContext.AssemblyNamePatternToFindEventHandlerTypes = pattern;
+        AggregateAssertionExceptionType = exceptionType;
         return this;
     }
 
@@ -728,7 +488,7 @@ Actual: {driverFactory.GetType().FullName}",
     /// The default value is <c>"{test-suite-name-sanitized:/*}{test-name-sanitized:/*}"</c>.
     /// </para>
     /// <para>
-    /// The list of predefined variables:
+    /// List of predefined variables:
     /// </para>
     /// <list type="bullet">
     /// <item><c>{test-name-sanitized}</c></item>
@@ -737,7 +497,6 @@ Actual: {driverFactory.GetType().FullName}",
     /// <item><c>{test-suite-name}</c></item>
     /// <item><c>{test-start}</c></item>
     /// <item><c>{test-start-utc}</c></item>
-    /// <item><c>{driver-alias}</c></item>
     /// </list>
     /// </summary>
     /// <param name="directoryPathTemplate">The directory path template.</param>
@@ -746,7 +505,7 @@ Actual: {driverFactory.GetType().FullName}",
     {
         directoryPathTemplate.CheckNotNullOrWhitespace(nameof(directoryPathTemplate));
 
-        BuildingContext.ArtifactsPathTemplate = directoryPathTemplate;
+        ArtifactsPathTemplate = directoryPathTemplate;
         return this;
     }
 
@@ -777,7 +536,7 @@ Actual: {driverFactory.GetType().FullName}",
     /// </summary>
     /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
     public AtataContextBuilder UseNUnitAggregateAssertionStrategy() =>
-        UseAggregateAssertionStrategy(new NUnitAggregateAssertionStrategy());
+        UseAggregateAssertionStrategy(NUnitAggregateAssertionStrategy.Instance);
 
     /// <summary>
     /// Sets the aggregate assertion strategy.
@@ -799,7 +558,7 @@ Actual: {driverFactory.GetType().FullName}",
     /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
     public AtataContextBuilder UseAggregateAssertionStrategy(IAggregateAssertionStrategy strategy)
     {
-        BuildingContext.AggregateAssertionStrategy = strategy;
+        AggregateAssertionStrategy = strategy;
 
         return this;
     }
@@ -809,7 +568,7 @@ Actual: {driverFactory.GetType().FullName}",
     /// </summary>
     /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
     public AtataContextBuilder UseNUnitWarningReportStrategy() =>
-        UseWarningReportStrategy(new NUnitWarningReportStrategy());
+        UseWarningReportStrategy(NUnitWarningReportStrategy.Instance);
 
     /// <summary>
     /// Sets the strategy for warning assertion reporting.
@@ -818,7 +577,7 @@ Actual: {driverFactory.GetType().FullName}",
     /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
     public AtataContextBuilder UseWarningReportStrategy(IWarningReportStrategy strategy)
     {
-        BuildingContext.WarningReportStrategy = strategy;
+        WarningReportStrategy = strategy;
 
         return this;
     }
@@ -837,34 +596,7 @@ Actual: {driverFactory.GetType().FullName}",
     /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
     public AtataContextBuilder UseAssertionFailureReportStrategy(IAssertionFailureReportStrategy strategy)
     {
-        BuildingContext.AssertionFailureReportStrategy = strategy;
-
-        return this;
-    }
-
-    /// <summary>
-    /// Sets the name of the DOM test identifier attribute.
-    /// The default value is <c>"data-testid"</c>.
-    /// </summary>
-    /// <param name="name">The name.</param>
-    /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
-    public AtataContextBuilder UseDomTestIdAttributeName(string name)
-    {
-        name.CheckNotNullOrWhitespace(nameof(name));
-        BuildingContext.DomTestIdAttributeName = name;
-
-        return this;
-    }
-
-    /// <summary>
-    /// Sets the default case of the DOM test identifier attribute.
-    /// The default value is <see cref="TermCase.Kebab"/>.
-    /// </summary>
-    /// <param name="defaultCase">The default case.</param>
-    /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
-    public AtataContextBuilder UseDomTestIdAttributeDefaultCase(TermCase defaultCase)
-    {
-        BuildingContext.DomTestIdAttributeDefaultCase = defaultCase;
+        AssertionFailureReportStrategy = strategy;
 
         return this;
     }
@@ -888,27 +620,31 @@ Actual: {driverFactory.GetType().FullName}",
     /// <item><see cref="UseNUnitAggregateAssertionStrategy"/></item>
     /// <item><see cref="UseNUnitWarningReportStrategy"/></item>
     /// <item><see cref="UseNUnitAssertionFailureReportStrategy"/></item>
-    /// <item><see cref="LogConsumersAtataContextBuilder.AddNUnitTestContext"/> of <see cref="LogConsumers"/> property</item>
-    /// <item><see cref="EventSubscriptionsAtataContextBuilder.LogNUnitError"/> of <see cref="EventSubscriptions"/> property</item>
-    /// <item><see cref="EventSubscriptionsAtataContextBuilder.TakeScreenshotOnNUnitError(string)"/> of <see cref="EventSubscriptions"/> property</item>
-    /// <item><see cref="EventSubscriptionsAtataContextBuilder.TakePageSnapshotOnNUnitError(string)"/> of <see cref="EventSubscriptions"/> property</item>
-    /// <item><see cref="EventSubscriptionsAtataContextBuilder.AddArtifactsToNUnitTestContext"/> of <see cref="EventSubscriptions"/> property</item>
+    /// <item><see cref="NUnitLogConsumersBuilderExtensions.AddNUnitTestContext(LogConsumersBuilder)"/> for <see cref="LogConsumers"/> property</item>
+    /// <item><see cref="NUnitEventSubscriptionsBuilderExtensions.LogNUnitError(EventSubscriptionsBuilder)"/> for <see cref="EventSubscriptions"/> property</item>
+    /// <item><see cref="NUnitEventSubscriptionsBuilderExtensions.TakeScreenshotOnNUnitError(EventSubscriptionsBuilder, string)"/> for <see cref="EventSubscriptions"/> property</item>
+    /// <item><see cref="NUnitEventSubscriptionsBuilderExtensions.TakePageSnapshotOnNUnitError(EventSubscriptionsBuilder, string)"/> for <see cref="EventSubscriptions"/> property</item>
+    /// <item><see cref="NUnitEventSubscriptionsBuilderExtensions.AddArtifactsToNUnitTestContext(EventSubscriptionsBuilder)"/> for <see cref="EventSubscriptions"/> property</item>
     /// </list>
     /// </summary>
     /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
-    public AtataContextBuilder UseAllNUnitFeatures() =>
-        UseNUnitTestName()
-            .UseNUnitTestSuiteName()
-            .UseNUnitTestSuiteType()
-            .UseNUnitAssertionExceptionType()
-            .UseNUnitAggregateAssertionStrategy()
-            .UseNUnitWarningReportStrategy()
-            .UseNUnitAssertionFailureReportStrategy()
-            .LogConsumers.AddNUnitTestContext()
-            .EventSubscriptions.LogNUnitError()
-            .EventSubscriptions.TakeScreenshotOnNUnitError()
-            .EventSubscriptions.TakePageSnapshotOnNUnitError()
-            .EventSubscriptions.AddArtifactsToNUnitTestContext();
+    public AtataContextBuilder UseAllNUnitFeatures()
+    {
+        UseNUnitTestName();
+        UseNUnitTestSuiteName();
+        UseNUnitTestSuiteType();
+        UseNUnitAssertionExceptionType();
+        UseNUnitAggregateAssertionStrategy();
+        UseNUnitWarningReportStrategy();
+        UseNUnitAssertionFailureReportStrategy();
+        LogConsumers.AddNUnitTestContext();
+        EventSubscriptions.LogNUnitError();
+        EventSubscriptions.TakeScreenshotOnNUnitError();
+        EventSubscriptions.TakePageSnapshotOnNUnitError();
+        EventSubscriptions.AddArtifactsToNUnitTestContext();
+
+        return this;
+    }
 
     /// <summary>
     /// Enables all Atata features for SpecFlow+NUnit.
@@ -921,29 +657,33 @@ Actual: {driverFactory.GetType().FullName}",
     /// <item><see cref="UseNUnitAggregateAssertionStrategy"/></item>
     /// <item><see cref="UseNUnitWarningReportStrategy"/></item>
     /// <item><see cref="UseNUnitAssertionFailureReportStrategy"/></item>
-    /// <item><see cref="EventSubscriptionsAtataContextBuilder.LogNUnitError"/> of <see cref="EventSubscriptions"/> property</item>
-    /// <item><see cref="EventSubscriptionsAtataContextBuilder.TakeScreenshotOnNUnitError(string)"/> of <see cref="EventSubscriptions"/> property</item>
-    /// <item><see cref="EventSubscriptionsAtataContextBuilder.TakePageSnapshotOnNUnitError(string)"/> of <see cref="EventSubscriptions"/> property</item>
+    /// <item><see cref="NUnitEventSubscriptionsBuilderExtensions.LogNUnitError(EventSubscriptionsBuilder)"/> for <see cref="EventSubscriptions"/> property</item>
+    /// <item><see cref="NUnitEventSubscriptionsBuilderExtensions.TakeScreenshotOnNUnitError(EventSubscriptionsBuilder, string)"/> for <see cref="EventSubscriptions"/> property</item>
+    /// <item><see cref="NUnitEventSubscriptionsBuilderExtensions.TakePageSnapshotOnNUnitError(EventSubscriptionsBuilder, string)"/> for <see cref="EventSubscriptions"/> property</item>
     /// </list>
     /// </summary>
     /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
-    public AtataContextBuilder UseSpecFlowNUnitFeatures() =>
-        UseNUnitTestName()
-            .UseNUnitTestSuiteName()
-            .UseNUnitTestSuiteType()
-            .UseNUnitAssertionExceptionType()
-            .UseNUnitAggregateAssertionStrategy()
-            .UseNUnitWarningReportStrategy()
-            .UseNUnitAssertionFailureReportStrategy()
-            .EventSubscriptions.LogNUnitError()
-            .EventSubscriptions.TakeScreenshotOnNUnitError()
-            .EventSubscriptions.TakePageSnapshotOnNUnitError();
+    public AtataContextBuilder UseSpecFlowNUnitFeatures()
+    {
+        UseNUnitTestName();
+        UseNUnitTestSuiteName();
+        UseNUnitTestSuiteType();
+        UseNUnitAssertionExceptionType();
+        UseNUnitAggregateAssertionStrategy();
+        UseNUnitWarningReportStrategy();
+        UseNUnitAssertionFailureReportStrategy();
+        EventSubscriptions.LogNUnitError();
+        EventSubscriptions.TakeScreenshotOnNUnitError();
+        EventSubscriptions.TakePageSnapshotOnNUnitError();
+
+        return this;
+    }
 
     private DirectorySubject CreateArtifactsDirectorySubject(AtataContext context)
     {
-        string pathTemplate = BuildingContext.ArtifactsPathTemplate;
+        string pathTemplate = ArtifactsPathTemplate;
 
-        string path = context.FillTemplateString(pathTemplate);
+        string path = context.Variables.FillPathTemplateString(pathTemplate);
         string fullPath;
 
         if (path.Length > 0)
@@ -958,16 +698,17 @@ Actual: {driverFactory.GetType().FullName}",
             fullPath = AtataContext.GlobalProperties.ArtifactsRootPath;
         }
 
-        return new DirectorySubject(fullPath, "Artifacts");
+        return new DirectorySubject(fullPath, "Artifacts", context.ExecutionUnit);
     }
 
+#warning Review Clear method.
     /// <summary>
-    /// Clears the <see cref="BuildingContext"/>.
+    /// Clears the configuration.
     /// </summary>
     /// <returns>The <see cref="AtataContextBuilder"/> instance.</returns>
     public AtataContextBuilder Clear()
     {
-        BuildingContext = new AtataBuildingContext();
+        ////BuildingContext = new AtataBuildingContext();
         return this;
     }
 
@@ -977,71 +718,42 @@ Actual: {driverFactory.GetType().FullName}",
     /// <returns>The created <see cref="AtataContext"/> instance.</returns>
     public AtataContext Build()
     {
-        ValidateBuildingContextBeforeBuild();
+        TestInfo testInfo = new(
+            TestNameFactory?.Invoke(),
+            TestSuiteNameFactory?.Invoke(),
+            TestSuiteTypeFactory?.Invoke());
 
-        AtataContext context = new AtataContext();
+        AtataContext parentContext = ParentContext;
+
+        if (parentContext is null && Scope is not null)
+            parentContext = FindParentContext(Scope.Value, testInfo);
+
+        AtataContext context = new(parentContext, Scope, testInfo);
         LogManager logManager = CreateLogManager(context);
 
-        IObjectConverter objectConverter = new ObjectConverter
-        {
-            AssemblyNamePatternToFindTypes = BuildingContext.DefaultAssemblyNamePatternToFindTypes
-        };
-
-        IObjectMapper objectMapper = new ObjectMapper(objectConverter);
-        IObjectCreator objectCreator = new ObjectCreator(objectConverter, objectMapper);
-
-        context.Test.Name = BuildingContext.TestNameFactory?.Invoke();
-        context.Test.SuiteName = BuildingContext.TestSuiteNameFactory?.Invoke();
-        context.Test.SuiteType = BuildingContext.TestSuiteTypeFactory?.Invoke();
-        context.BaseUrl = BuildingContext.BaseUrl;
         context.Log = logManager;
-        context.Attributes = BuildingContext.Attributes.Clone();
-        context.BaseRetryTimeout = BuildingContext.BaseRetryTimeout;
-        context.BaseRetryInterval = BuildingContext.BaseRetryInterval;
-        context.ElementFindTimeout = BuildingContext.ElementFindTimeout;
-        context.ElementFindRetryInterval = BuildingContext.ElementFindRetryInterval;
-        context.WaitingTimeout = BuildingContext.WaitingTimeout;
-        context.WaitingRetryInterval = BuildingContext.WaitingRetryInterval;
-        context.VerificationTimeout = BuildingContext.VerificationTimeout;
-        context.VerificationRetryInterval = BuildingContext.VerificationRetryInterval;
-        context.DefaultControlVisibility = BuildingContext.DefaultControlVisibility;
-        context.Culture = BuildingContext.Culture ?? CultureInfo.CurrentCulture;
-        context.AssertionExceptionType = BuildingContext.AssertionExceptionType;
-        context.AggregateAssertionExceptionType = BuildingContext.AggregateAssertionExceptionType;
-        context.AggregateAssertionStrategy = BuildingContext.AggregateAssertionStrategy ?? new AtataAggregateAssertionStrategy();
-        context.WarningReportStrategy = BuildingContext.WarningReportStrategy ?? new AtataWarningReportStrategy();
-        context.AssertionFailureReportStrategy = BuildingContext.AssertionFailureReportStrategy ?? AtataAssertionFailureReportStrategy.Instance;
-        context.DomTestIdAttributeName = BuildingContext.DomTestIdAttributeName;
-        context.DomTestIdAttributeDefaultCase = BuildingContext.DomTestIdAttributeDefaultCase;
-        context.ObjectConverter = objectConverter;
-        context.ObjectMapper = objectMapper;
-        context.ObjectCreator = objectCreator;
-        context.EventBus = new EventBus(context, BuildingContext.EventSubscriptions);
-
-        context.ScreenshotTaker = new ScreenshotTaker(
-            BuildingContext.Screenshots.Strategy,
-            BuildingContext.Screenshots.FileNameTemplate,
-            context);
-
-        context.PageSnapshotTaker = new PageSnapshotTaker(
-            BuildingContext.PageSnapshots.Strategy,
-            BuildingContext.PageSnapshots.FileNameTemplate,
-            context);
-
-        if (context.Test.SuiteName is null && context.Test.SuiteType is not null)
-            context.Test.SuiteName = context.Test.SuiteType.Name;
-
-        context.DriverFactory = BuildingContext.DriverFactoryToUse
-            ?? BuildingContext.DriverFactories.LastOrDefault();
-        context.DisposeDriver = BuildingContext.DisposeDriver;
-        context.DriverAlias = context.DriverFactory?.Alias;
-        context.DriverInitializationStage = BuildingContext.DriverInitializationStage;
+        context.Attributes = Attributes.AttributesContext.Clone();
+        context.BaseRetryTimeout = BaseRetryTimeout;
+        context.BaseRetryInterval = BaseRetryInterval;
+        context.WaitingTimeout = WaitingTimeout;
+        context.WaitingRetryInterval = WaitingRetryInterval;
+        context.VerificationTimeout = VerificationTimeout;
+        context.VerificationRetryInterval = VerificationRetryInterval;
+        context.Culture = Culture ?? CultureInfo.CurrentCulture;
+        context.AssertionExceptionType = AssertionExceptionType;
+        context.AggregateAssertionExceptionType = AggregateAssertionExceptionType;
+        context.AggregateAssertionStrategy = AggregateAssertionStrategy ?? AtataAggregateAssertionStrategy.Instance;
+        context.WarningReportStrategy = WarningReportStrategy ?? AtataWarningReportStrategy.Instance;
+        context.AssertionFailureReportStrategy = AssertionFailureReportStrategy ?? AtataAssertionFailureReportStrategy.Instance;
+        context.EventBus = new EventBus(context, EventSubscriptions.Items);
 
         context.InitDateTimeProperties();
         context.InitMainVariables();
-        context.InitCustomVariables(BuildingContext.Variables);
+        context.InitCustomVariables(Variables);
         context.Artifacts = CreateArtifactsDirectorySubject(context);
         context.InitArtifactsVariable();
+
+        parentContext?.AddChildContext(context);
 
         AtataContext.Current = context;
 
@@ -1058,63 +770,22 @@ Actual: {driverFactory.GetType().FullName}",
         return context;
     }
 
-    private LogManager CreateLogManager(AtataContext context)
+    private static AtataContext FindParentContext(AtataContextScope scope, TestInfo testInfo)
     {
-        LogManager logManager = new LogManager(
-            new AtataContextLogEventInfoFactory(context));
-
-        logManager.AddSecretStringsToMask(BuildingContext.SecretStringsToMaskInLog);
-
-        foreach (var logConsumerConfiguration in BuildingContext.LogConsumerConfigurations)
-            logManager.AddConfiguration(logConsumerConfiguration);
-
-        return logManager;
+        // TODO: Implement.
+        return null;
     }
 
-    private void InitializeContext(AtataContext context)
-    {
-        context.EventBus.Publish(new AtataContextInitStartedEvent(context));
-
-        if (context.BaseUrl != null)
-            context.Log.Trace($"Set: BaseUrl={context.BaseUrl}");
-
-        LogRetrySettings(context);
-
-        if (BuildingContext.Culture != null)
-            ApplyCulture(context, BuildingContext.Culture);
-
-        context.Log.Trace($"Set: Artifacts={context.ArtifactsPath}");
-
-        InitBrowserLogMonitoring(context);
-
-        if (context.DriverInitializationStage == AtataContextDriverInitializationStage.Build)
-            context.InitDriver();
-
-        context.EventBus.Publish(new AtataContextInitCompletedEvent(context));
-    }
-
-    private static void LogRetrySettings(AtataContext context)
-    {
-        string messageFormat = "Set: {0}Timeout={1}; {0}RetryInterval={2}";
-
-        context.Log.Trace(
-            messageFormat.FormatWith(
-                "ElementFind",
-                context.ElementFindTimeout.ToShortIntervalString(),
-                context.ElementFindRetryInterval.ToShortIntervalString()));
-
-        context.Log.Trace(
-            messageFormat.FormatWith(
-                "Waiting",
-                context.WaitingTimeout.ToShortIntervalString(),
-                context.WaitingRetryInterval.ToShortIntervalString()));
-
-        context.Log.Trace(
-            messageFormat.FormatWith(
-                "Verification",
-                context.VerificationTimeout.ToShortIntervalString(),
-                context.VerificationRetryInterval.ToShortIntervalString()));
-    }
+    private static AtataSessionStartScopes? ResolveSessionDefaultStartScopes(AtataContextScope? scope) =>
+        scope switch
+        {
+            AtataContextScope.Test => AtataSessionStartScopes.Test,
+            AtataContextScope.TestSuite => AtataSessionStartScopes.TestSuite,
+            AtataContextScope.NamespaceSuite => AtataSessionStartScopes.NamespaceSuite,
+            AtataContextScope.Global => AtataSessionStartScopes.Global,
+            null => null,
+            _ => AtataSessionStartScopes.None
+        };
 
     private static void ApplyCulture(AtataContext context, CultureInfo culture)
     {
@@ -1126,146 +797,114 @@ Actual: {driverFactory.GetType().FullName}",
         context.Log.Trace($"Set: Culture={culture.Name}");
     }
 
-    private void InitBrowserLogMonitoring(AtataContext context)
+    private LogManager CreateLogManager(AtataContext context)
     {
-        if (BuildingContext.BrowserLogs.HasPropertiesToUse)
-        {
-            if (context.DriverFactory is ChromeAtataContextBuilder chromeBuilder)
-            {
-                chromeBuilder.WithOptions(x => x.SetLoggingPreference(LogType.Browser, OpenQA.Selenium.LogLevel.All));
-            }
-            else if (context.DriverFactory is EdgeAtataContextBuilder edgeBuilder)
-            {
-                edgeBuilder.WithOptions(x => x.SetLoggingPreference(LogType.Browser, OpenQA.Selenium.LogLevel.All));
-            }
-            else if (context.DriverFactory is RemoteDriverAtataContextBuilder remoteBuilder)
-            {
-                remoteBuilder.WithOptions(x => x.SetLoggingPreference(LogType.Browser, OpenQA.Selenium.LogLevel.All));
-            }
+        LogManagerConfiguration configuration = new(
+            [.. LogConsumers.Items],
+            [.. SecretStringsToMaskInLog]);
 
-            List<IBrowserLogHandler> browserLogHandlers = new(2);
-
-            if (BuildingContext.BrowserLogs.Log)
-                browserLogHandlers.Add(new LoggingBrowserLogHandler(context.Log));
-
-            if (BuildingContext.BrowserLogs.MinLevelOfWarning is not null)
-                browserLogHandlers.Add(new WarningBrowserLogHandler(context, BuildingContext.BrowserLogs.MinLevelOfWarning.Value));
-
-            context.EventBus.Subscribe<DriverInitEvent>(
-                (e, c) => EnableBrowserLogMonitoringOnDriverInitEvent(e.Driver, c, browserLogHandlers));
-        }
+        return new(configuration, new AtataContextLogEventInfoFactory(context));
     }
 
-    private static void EnableBrowserLogMonitoringOnDriverInitEvent(
-        IWebDriver driver,
-        AtataContext context,
-        IEnumerable<IBrowserLogHandler> browserLogHandlers)
+    private void InitializeContext(AtataContext context)
     {
-        if (driver is RemoteWebDriver remoteWebDriver)
-            remoteWebDriver.RegisterCustomDriverCommand(DriverCommand.GetLog, new HttpCommandInfo(HttpCommandInfo.PostCommand, "/session/{sessionId}/se/log"));
+        context.EventBus.Publish(new AtataContextInitStartedEvent(context));
 
-        if (driver is ChromiumDriver or RemoteWebDriver)
+        if (Culture != null)
+            ApplyCulture(context, Culture);
+
+        context.Log.Trace($"Set: Artifacts={context.ArtifactsPath}");
+
+        context.Sessions.AddBuilders(Sessions.Builders);
+
+        foreach (var builder in Sessions.Builders.Where(ShouldAutoStartSession))
         {
-            ChromiumBrowserLogMonitoringStrategy logMonitoringStrategy = new(driver, browserLogHandlers, AtataContext.GlobalProperties.TimeZone);
-
-            try
-            {
-                logMonitoringStrategy.Start();
-            }
-            catch (Exception exception)
-            {
-                context.Log.Warn(exception, "Browser logs monitoring failed to enable.");
-                return;
-            }
-
-            object driverDeInitEventSubscription = null;
-
-            var eventBus = context.EventBus;
-            driverDeInitEventSubscription = eventBus.Subscribe<DriverDeInitEvent>(() =>
-            {
-                logMonitoringStrategy.Stop();
-                eventBus.Unsubscribe(driverDeInitEventSubscription);
-            });
+#warning Use await.
+            var session = builder.BuildAsync(context).GetAwaiter().GetResult();
+            context.Sessions.Add(session);
         }
-        else
-        {
-            context.Log.Warn("Browser logs monitoring cannot be enabled. The feature is currently only available for Chrome and Edge.");
-        }
+
+        context.EventBus.Publish(new AtataContextInitCompletedEvent(context));
     }
 
-    private void ValidateBuildingContextBeforeBuild()
-    {
-        if (BuildingContext.DriverInitializationStage == AtataContextDriverInitializationStage.Build
-            && BuildingContext.DriverFactoryToUse == null
-            && BuildingContext.DriverFactories.Count == 0)
+    private bool ShouldAutoStartSession(IAtataSessionBuilder builder) =>
+        Scope switch
         {
-            throw new InvalidOperationException(
-                $"Cannot build {nameof(AtataContext)} as no driver is specified. " +
-                $"Use one of \"Use*\" methods to specify the driver to use, e.g.:AtataContext.Configure().UseChrome().Build();");
-        }
-    }
-
-    protected internal IObjectMapper CreateObjectMapper()
-    {
-        IObjectConverter objectConverter = new ObjectConverter
-        {
-            AssemblyNamePatternToFindTypes = BuildingContext.DefaultAssemblyNamePatternToFindTypes
+            AtataContextScope.Test => builder.StartScopes is null || builder.StartScopes.Value.HasFlag(AtataSessionStartScopes.Test),
+            AtataContextScope.TestSuite => builder.StartScopes is null || builder.StartScopes.Value.HasFlag(AtataSessionStartScopes.TestSuite),
+            AtataContextScope.NamespaceSuite => builder.StartScopes is null || builder.StartScopes.Value.HasFlag(AtataSessionStartScopes.NamespaceSuite),
+            AtataContextScope.Global => builder.StartScopes is null || builder.StartScopes.Value.HasFlag(AtataSessionStartScopes.Global),
+            null => builder.StartScopes is null,
+            _ => false
         };
 
-        return new ObjectMapper(objectConverter);
-    }
+#warning Temporarily commented AutoSetUp* methods. Try to make them obsolete.
+    ////public void AutoSetUpDriverToUse()
+    ////{
+    ////    if (BuildingContext.UsesLocalBrowser)
+    ////        InvokeAutoSetUpSafelyMethodOfDriverSetup([BuildingContext.LocalBrowserToUseName]);
+    ////}
+
+    ////public async Task AutoSetUpDriverToUseAsync() =>
+    ////    await Task.Run(AutoSetUpDriverToUse);
+
+    ////public void AutoSetUpConfiguredDrivers() =>
+    ////    InvokeAutoSetUpSafelyMethodOfDriverSetup(BuildingContext.ConfiguredLocalBrowserNames);
+
+    ////public async Task AutoSetUpConfiguredDriversAsync() =>
+    ////    await Task.Run(AutoSetUpConfiguredDrivers);
+
+    ////private static void InvokeAutoSetUpSafelyMethodOfDriverSetup(IEnumerable<string> browserNames)
+    ////{
+    ////    Type driverSetupType = Type.GetType("Atata.WebDriverSetup.DriverSetup,Atata.WebDriverSetup", true);
+
+    ////    var setUpMethod = driverSetupType.GetMethodWithThrowOnError(
+    ////        "AutoSetUpSafely",
+    ////        BindingFlags.Public | BindingFlags.Static);
+
+    ////    setUpMethod.InvokeStaticAsLambda(browserNames);
+    ////}
+
+    object ICloneable.Clone() =>
+        Clone();
 
     /// <summary>
-    /// <para>
-    /// Sets up driver with auto version detection for the local browser to use.
-    /// Gets the name of the local browser to use from <see cref="AtataBuildingContext.LocalBrowserToUseName"/> property.
-    /// Then invokes <c>Atata.WebDriverSetup.DriverSetup.AutoSetUpSafely(...)</c> static method
-    /// from <c>Atata.WebDriverSetup</c> package.
-    /// </para>
-    /// <para>
-    /// In order to use this method,
-    /// ensure that <c>Atata.WebDriverSetup</c> package is installed.
-    /// </para>
+    /// Creates a copy of the current builder.
     /// </summary>
-    public void AutoSetUpDriverToUse()
-    {
-        if (BuildingContext.UsesLocalBrowser)
-            InvokeAutoSetUpSafelyMethodOfDriverSetup([BuildingContext.LocalBrowserToUseName]);
-    }
-
-    /// <inheritdoc cref="AutoSetUpDriverToUse"/>
-    /// <returns>The task object representing the asynchronous operation.</returns>
-    public async Task AutoSetUpDriverToUseAsync() =>
-        await Task.Run(AutoSetUpDriverToUse);
+    /// <returns>The copied <see cref="AtataContextBuilder"/> instance.</returns>
+    public AtataContextBuilder Clone() =>
+        CopyFor(Scope);
 
     /// <summary>
-    /// <para>
-    /// Sets up drivers with auto version detection for the local configured browsers.
-    /// Gets the names of configured local browsers from <see cref="AtataBuildingContext.ConfiguredLocalBrowserNames"/> property.
-    /// Then invokes <c>Atata.WebDriverSetup.DriverSetup.AutoSetUpSafely(...)</c> static method
-    /// from <c>Atata.WebDriverSetup</c> package.
-    /// </para>
-    /// <para>
-    /// In order to use this method,
-    /// ensure that <c>Atata.WebDriverSetup</c> package is installed.
-    /// </para>
+    /// Creates a copy of the current builder for the specified <paramref name="scope"/>.
     /// </summary>
-    public void AutoSetUpConfiguredDrivers() =>
-        InvokeAutoSetUpSafelyMethodOfDriverSetup(BuildingContext.ConfiguredLocalBrowserNames);
+    /// <param name="scope">The scope of context.</param>
+    /// <returns>The copied <see cref="AtataContextBuilder"/> instance.</returns>
+    public AtataContextBuilder CloneFor(AtataContextScope scope) =>
+        CopyFor(scope);
 
-    /// <inheritdoc cref="AutoSetUpConfiguredDrivers"/>
-    /// <returns>The task object representing the asynchronous operation.</returns>
-    public async Task AutoSetUpConfiguredDriversAsync() =>
-        await Task.Run(AutoSetUpConfiguredDrivers);
-
-    private static void InvokeAutoSetUpSafelyMethodOfDriverSetup(IEnumerable<string> browserNames)
+    internal AtataContextBuilder CopyFor(AtataContextScope? scope)
     {
-        Type driverSetupType = Type.GetType("Atata.WebDriverSetup.DriverSetup,Atata.WebDriverSetup", true);
+        var copy = (AtataContextBuilder)MemberwiseClone();
 
-        var setUpMethod = driverSetupType.GetMethodWithThrowOnError(
-            "AutoSetUpSafely",
-            BindingFlags.Public | BindingFlags.Static);
+        copy.Scope = scope;
+        copy.Sessions = new(
+            copy,
+            Sessions.Builders.Select(x => x.Clone()).ToList(),
+            ResolveSessionDefaultStartScopes(scope));
 
-        setUpMethod.InvokeStaticAsLambda(browserNames);
+        copy.LogConsumers = new LogConsumersBuilder(
+            LogConsumers.Items.Select(x => x.Consumer is ICloneable ? x.Clone() : x));
+
+        copy.Attributes = new AttributesBuilder(
+            Attributes.AttributesContext.Clone());
+
+        copy.EventSubscriptions = new EventSubscriptionsBuilder(
+            EventSubscriptions.Items);
+
+        copy.Variables = new Dictionary<string, object>(Variables);
+        copy.SecretStringsToMaskInLog = [.. SecretStringsToMaskInLog];
+
+        return copy;
     }
 }

@@ -4,90 +4,97 @@
 /// Represents the log manager, an entry point for the Atata logging functionality.
 /// </summary>
 /// <seealso cref="ILogManager" />
-public class LogManager : ILogManager
+internal sealed class LogManager : ILogManager
 {
+    private readonly LogManagerConfiguration _configuration;
+
     private readonly ILogEventInfoFactory _logEventInfoFactory;
 
-    private readonly List<LogConsumerConfiguration> _logConsumerConfigurations = [];
+    private readonly Lazy<ConcurrentDictionary<string, ILogManager>> _lazyExternalSourceLogManagerMap = new();
 
-    private readonly List<SecretStringToMask> _secretStringsToMask = [];
+    private readonly Lazy<ConcurrentDictionary<string, ILogManager>> _lazyCategoryLogManagerMap = new();
 
-    private readonly Stack<LogSection> _sectionEndStack = new();
+    private readonly IOuterLogNestingLevelResolver _outerLogNestingLevelResolver;
 
-    public LogManager(ILogEventInfoFactory logEventInfoFactory) =>
-        _logEventInfoFactory = logEventInfoFactory.CheckNotNull(nameof(logEventInfoFactory));
+    private readonly Stack<LogSection> _sectionStack = new();
 
-    /// <summary>
-    /// Adds the log consumer configuration.
-    /// </summary>
-    /// <param name="logConsumerConfiguration">The log consumer configuration.</param>
-    public void AddConfiguration(LogConsumerConfiguration logConsumerConfiguration)
+    internal LogManager(
+        LogManagerConfiguration configuration,
+        ILogEventInfoFactory logEventInfoFactory)
+        : this(
+            configuration,
+            logEventInfoFactory,
+            ZeroOuterLogNestingLevelResolver.Instance)
     {
-        logConsumerConfiguration.CheckNotNull(nameof(logConsumerConfiguration));
-
-        _logConsumerConfigurations.Add(logConsumerConfiguration);
     }
 
-    /// <summary>
-    /// Adds the secret strings to mask.
-    /// </summary>
-    /// <param name="secretStringsToMask">The secret strings to mask.</param>
-    public void AddSecretStringsToMask(IEnumerable<SecretStringToMask> secretStringsToMask)
+    private LogManager(
+        LogManagerConfiguration configuration,
+        ILogEventInfoFactory logEventInfoFactory,
+        IOuterLogNestingLevelResolver outerLogNestingLevelResolver)
     {
-        secretStringsToMask.CheckNotNull(nameof(secretStringsToMask));
-
-        _secretStringsToMask.AddRange(secretStringsToMask);
+        _configuration = configuration;
+        _logEventInfoFactory = logEventInfoFactory;
+        _outerLogNestingLevelResolver = outerLogNestingLevelResolver;
     }
 
-    /// <inheritdoc/>
+    private interface IOuterLogNestingLevelResolver
+    {
+        int GetNestingLevel(LogConsumerConfiguration consumerConfiguration);
+    }
+
+    public void Log(LogLevel level, string message, Exception exception = null) =>
+        Log(
+            DateTime.UtcNow,
+            level,
+            message,
+            exception);
+
+    public void Log(DateTime utcTimestamp, LogLevel level, string message, Exception exception = null)
+    {
+        DateTime logTimestamp = ConvertUtcTimestampToAtataTimeZone(utcTimestamp);
+        LogEventInfo logEvent = _logEventInfoFactory.Create(logTimestamp, level, message);
+        logEvent.Exception = exception;
+
+        Log(logEvent);
+    }
+
     public void Trace(string message) =>
         Log(LogLevel.Trace, message);
 
-    /// <inheritdoc/>
     public void Debug(string message) =>
         Log(LogLevel.Debug, message);
 
-    /// <inheritdoc/>
     public void Info(string message) =>
         Log(LogLevel.Info, message);
 
-    /// <inheritdoc/>
     public void Warn(string message) =>
         Log(LogLevel.Warn, message);
 
-    /// <inheritdoc/>
     public void Warn(Exception exception) =>
         Log(LogLevel.Warn, null, exception);
 
-    /// <inheritdoc/>
     public void Warn(Exception exception, string message) =>
         Log(LogLevel.Warn, message, exception);
 
-    /// <inheritdoc/>
     public void Error(Exception exception) =>
         Log(LogLevel.Error, null, exception);
 
-    /// <inheritdoc/>
     public void Error(string message) =>
         Log(LogLevel.Error, message);
 
-    /// <inheritdoc/>
     public void Error(Exception exception, string message) =>
         Log(LogLevel.Error, message, exception);
 
-    /// <inheritdoc/>
     public void Fatal(Exception exception) =>
         Log(LogLevel.Fatal, null, exception);
 
-    /// <inheritdoc/>
     public void Fatal(string message) =>
         Log(LogLevel.Fatal, message);
 
-    /// <inheritdoc/>
     public void Fatal(Exception exception, string message) =>
         Log(LogLevel.Fatal, message, exception);
 
-    /// <inheritdoc/>
     public void ExecuteSection(LogSection section, Action action)
     {
         section.CheckNotNull(nameof(section));
@@ -110,7 +117,6 @@ public class LogManager : ILogManager
         }
     }
 
-    /// <inheritdoc/>
     public TResult ExecuteSection<TResult>(LogSection section, Func<TResult> function)
     {
         section.CheckNotNull(nameof(section));
@@ -135,7 +141,6 @@ public class LogManager : ILogManager
         }
     }
 
-    /// <inheritdoc/>
     public async Task ExecuteSectionAsync(LogSection section, Func<Task> function)
     {
         section.CheckNotNull(nameof(section));
@@ -158,7 +163,6 @@ public class LogManager : ILogManager
         }
     }
 
-    /// <inheritdoc/>
     public async Task<TResult> ExecuteSectionAsync<TResult>(LogSection section, Func<Task<TResult>> function)
     {
         section.CheckNotNull(nameof(section));
@@ -182,6 +186,45 @@ public class LogManager : ILogManager
             EndCurrentSection();
         }
     }
+
+    internal ILogManager ForSession(AtataSession session) =>
+        new LogManager(
+            _configuration,
+            new AtataSessionLogEventInfoFactory(_logEventInfoFactory, session),
+            CreateNestingLevelResolver(x => x.EmbedSessionLog));
+
+    public ILogManager ForExternalSource(string externalSource)
+    {
+        externalSource.CheckNotNullOrWhitespace(nameof(externalSource));
+
+        return _lazyExternalSourceLogManagerMap.Value.GetOrAdd(
+            externalSource,
+            x => new LogManager(
+                _configuration,
+                new ExternalSourceLogEventInfoFactory(_logEventInfoFactory, x),
+                CreateNestingLevelResolver(x => x.EmbedExternalSourceLog)));
+    }
+
+    public ILogManager ForCategory(string category)
+    {
+        category.CheckNotNullOrWhitespace(nameof(category));
+
+        return _lazyCategoryLogManagerMap.Value.GetOrAdd(
+            category,
+            x => new LogManager(
+                _configuration,
+                new CategoryLogEventInfoFactory(_logEventInfoFactory, x),
+                CreateNestingLevelResolver(_ => true)));
+    }
+
+    public ILogManager ForCategory<TCategory>() =>
+        ForCategory(typeof(TCategory).FullName);
+
+    private static DateTime GetCurrentTimestamp() =>
+        ConvertUtcTimestampToAtataTimeZone(DateTime.UtcNow);
+
+    private static DateTime ConvertUtcTimestampToAtataTimeZone(DateTime utcTimestamp) =>
+        TimeZoneInfo.ConvertTimeFromUtc(utcTimestamp, AtataContext.GlobalProperties.TimeZone);
 
     private static string AppendSectionResultToMessage(string message, object result)
     {
@@ -214,15 +257,15 @@ public class LogManager : ILogManager
         return $"{exception.GetType().FullName}: {message}";
     }
 
-    private static string PrependHierarchyPrefixesToMessage(string message, LogEventInfo eventInfo, LogConsumerConfiguration logConsumerConfiguration)
+    private static string BuildNestingText(LogEventInfo eventInfo, LogConsumerConfiguration logConsumerConfiguration)
     {
-        StringBuilder builder = new StringBuilder();
+        StringBuilder builder = new();
 
         if (eventInfo.NestingLevel > 0)
         {
             for (int i = 0; i < eventInfo.NestingLevel; i++)
             {
-                builder.Append(logConsumerConfiguration.MessageNestingLevelIndent);
+                builder.Append(logConsumerConfiguration.NestingLevelIndent);
             }
         }
 
@@ -235,16 +278,14 @@ public class LogManager : ILogManager
             {
                 builder.Append(
                     eventInfo.SectionStart != null
-                        ? logConsumerConfiguration.MessageStartSectionPrefix
-                        : logConsumerConfiguration.MessageEndSectionPrefix);
+                        ? logConsumerConfiguration.SectionStartPrefix
+                        : logConsumerConfiguration.SectionEndPrefix);
             }
         }
 
-        string resultMessage = builder.Append(message).ToString();
-
-        return resultMessage.Length == 0 && message == null
-            ? null
-            : resultMessage;
+        return builder.Length > 0
+            ? builder.ToString()
+            : null;
     }
 
     private static IEnumerable<LogConsumerConfiguration> FilterByLogSectionEnd(
@@ -262,73 +303,122 @@ public class LogManager : ILogManager
     private static bool IsBlockLogSection(LogSection logSection) =>
         logSection is AggregateAssertionLogSection or SetupLogSection or StepLogSection;
 
+    private IOuterLogNestingLevelResolver CreateNestingLevelResolver(
+        Func<LogConsumerConfiguration, bool> isEnabledPredicate)
+        =>
+        new OuterLogNestingLevelResolver(
+            _sectionStack, _outerLogNestingLevelResolver, isEnabledPredicate);
+
     private void StartSection(LogSection section)
     {
-        LogEventInfo eventInfo = _logEventInfoFactory.Create(section.Level, section.Message);
-        eventInfo.SectionStart = section;
+        lock (_sectionStack)
+        {
+            LogEventInfo eventInfo = _logEventInfoFactory.Create(GetCurrentTimestamp(), section.Level, section.Message);
+            eventInfo.SectionStart = section;
 
-        section.StartedAt = eventInfo.Timestamp;
-        section.Stopwatch.Start();
+            section.StartedAt = eventInfo.Timestamp;
+            section.Stopwatch.Start();
 
-        Log(eventInfo);
+            Log(eventInfo);
 
-        _sectionEndStack.Push(section);
+            _sectionStack.Push(section);
+        }
     }
 
     private void EndCurrentSection()
     {
-        if (_sectionEndStack.Any())
+        lock (_sectionStack)
         {
-            LogSection section = _sectionEndStack.Pop();
+            if (_sectionStack.Any())
+            {
+                LogSection section = _sectionStack.Pop();
 
-            section.Stopwatch.Stop();
+                section.Stopwatch.Stop();
 
-            string message = $"{section.Message} ({section.ElapsedTime.ToLongIntervalString()})";
+                string message = $"{section.Message} ({section.ElapsedTime.ToLongIntervalString()})";
 
-            if (section.IsResultSet)
-                message = AppendSectionResultToMessage(message, section.Result);
-            else if (section.Exception != null)
-                message = AppendSectionResultToMessage(message, section.Exception);
+                if (section.IsResultSet)
+                    message = AppendSectionResultToMessage(message, section.Result);
+                else if (section.Exception != null)
+                    message = AppendSectionResultToMessage(message, section.Exception);
 
-            LogEventInfo eventInfo = _logEventInfoFactory.Create(section.Level, message);
-            eventInfo.SectionEnd = section;
+                LogEventInfo eventInfo = _logEventInfoFactory.Create(GetCurrentTimestamp(), section.Level, message);
+                eventInfo.SectionEnd = section;
 
-            Log(eventInfo);
+                Log(eventInfo);
+            }
         }
-    }
-
-    private void Log(LogLevel level, string message, Exception exception = null)
-    {
-        LogEventInfo logEvent = _logEventInfoFactory.Create(level, message);
-        logEvent.Exception = exception;
-
-        Log(logEvent);
     }
 
     private void Log(LogEventInfo eventInfo)
     {
-        var appropriateConsumerItems = _logConsumerConfigurations
+        var appropriateConsumerItems = _configuration.ConsumerConfigurations
             .Where(x => eventInfo.Level >= x.MinLevel);
 
         if (eventInfo.SectionEnd != null)
             appropriateConsumerItems = FilterByLogSectionEnd(appropriateConsumerItems, eventInfo.SectionEnd);
 
-        string originalMessage = ApplySecretMasks(eventInfo.Message);
+        eventInfo.Message = ApplySecretMasks(eventInfo.Message);
 
-        foreach (var consumerItem in appropriateConsumerItems)
+        lock (_sectionStack)
         {
-            eventInfo.NestingLevel = _sectionEndStack.Count(x => x.Level >= consumerItem.MinLevel);
-            eventInfo.Message = PrependHierarchyPrefixesToMessage(originalMessage, eventInfo, consumerItem);
+            foreach (var consumerItem in appropriateConsumerItems)
+            {
+                var outerNestingLevel = _outerLogNestingLevelResolver.GetNestingLevel(consumerItem);
+                var thisNestingLevel = _sectionStack.Count(x => x.Level >= consumerItem.MinLevel);
 
-            consumerItem.Consumer.Log(eventInfo);
+                eventInfo.NestingLevel = outerNestingLevel + thisNestingLevel;
+                eventInfo.NestingText = BuildNestingText(eventInfo, consumerItem);
+
+                consumerItem.Consumer.Log(eventInfo);
+            }
         }
     }
 
     private string ApplySecretMasks(string message)
     {
-        foreach (var secret in _secretStringsToMask)
+        foreach (var secret in _configuration.SecretStringsToMask)
             message = message.Replace(secret.Value, secret.Mask);
 
         return message;
+    }
+
+    private sealed class ZeroOuterLogNestingLevelResolver : IOuterLogNestingLevelResolver
+    {
+        public static ZeroOuterLogNestingLevelResolver Instance { get; } = new();
+
+        public int GetNestingLevel(LogConsumerConfiguration consumerConfiguration) => 0;
+    }
+
+    private sealed class OuterLogNestingLevelResolver : IOuterLogNestingLevelResolver
+    {
+        private readonly IEnumerable<LogSection> _sections;
+
+        private readonly IOuterLogNestingLevelResolver _parentResolver;
+
+        private readonly Func<LogConsumerConfiguration, bool> _isEnabledPredicate;
+
+        public OuterLogNestingLevelResolver(
+            IEnumerable<LogSection> sections,
+            IOuterLogNestingLevelResolver parentResolver,
+            Func<LogConsumerConfiguration, bool> isEnabledPredicate)
+        {
+            _sections = sections;
+            _parentResolver = parentResolver;
+            _isEnabledPredicate = isEnabledPredicate;
+        }
+
+        public int GetNestingLevel(LogConsumerConfiguration consumerConfiguration)
+        {
+            if (!_isEnabledPredicate.Invoke(consumerConfiguration))
+                return 0;
+
+            int parentNestingLevel = _parentResolver.GetNestingLevel(consumerConfiguration);
+
+            lock (_sections)
+            {
+                return parentNestingLevel + _sections.Count(x => x.Level >= consumerConfiguration.MinLevel);
+            }
+        }
     }
 }

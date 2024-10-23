@@ -8,8 +8,11 @@ public interface IUIComponent<TOwner>
     where TOwner : PageObject<TOwner>
 {
     /// <summary>
-    /// Gets the <see cref="AtataContext"/> instance with which this component is associated.
+    /// Gets the associated session.
     /// </summary>
+    WebDriverSession Session { get; }
+
+    [Obsolete("Instead use either Session.Context or corresponding member of Session.")] // Obsolete since v4.0.0.
     AtataContext Context { get; }
 
     /// <summary>
@@ -158,7 +161,8 @@ public interface IUIComponent<TOwner>
 
     /// <summary>
     /// Gets the waiting verification provider that has a set of verification extension methods.
-    /// Uses <see cref="AtataContext.WaitingTimeout"/> and <see cref="AtataContext.WaitingRetryInterval"/> of <see cref="AtataContext.Current"/> for timeout and retry interval.
+    /// Uses <see cref="AtataSession.WaitingTimeout"/> and <see cref="AtataSession.WaitingRetryInterval"/>
+    /// values of the associated session for timeout and retry interval.
     /// </summary>
     UIComponentVerificationProvider<UIComponent<TOwner>, TOwner> WaitTo { get; }
 

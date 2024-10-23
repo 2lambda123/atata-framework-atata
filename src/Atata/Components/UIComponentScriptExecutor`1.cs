@@ -129,13 +129,19 @@ public class UIComponentScriptExecutor<TOwner> : UIComponentPart<TOwner>
     private object ExecuteScript(string script, object[] arguments)
     {
         object[] unwrappedArguments = UnwrapScriptArguments(arguments);
-        return Component.Owner.Driver.AsScriptExecutor().ExecuteScriptWithLogging(script, unwrappedArguments);
+        return Component.Owner.Driver.AsScriptExecutor().ExecuteScriptWithLogging(
+            Component.Session.Log,
+            script,
+            unwrappedArguments);
     }
 
     private object ExecuteAsyncScript(string script, object[] arguments)
     {
         object[] unwrappedArguments = UnwrapScriptArguments(arguments);
-        return Component.Owner.Driver.AsScriptExecutor().ExecuteAsyncScriptWithLogging(script, unwrappedArguments);
+        return Component.Owner.Driver.AsScriptExecutor().ExecuteAsyncScriptWithLogging(
+            Component.Session.Log,
+            script,
+            unwrappedArguments);
     }
 
     /// <summary>
@@ -373,9 +379,6 @@ public class UIComponentScriptExecutor<TOwner> : UIComponentPart<TOwner>
             """,
             rootSelector);
 
-    private TResult ConvertResult<TResult>(object result)
-    {
-        IObjectConverter objectConverter = Component.Context.ObjectConverter;
-        return (TResult)objectConverter.Convert(result, typeof(TResult));
-    }
+    private static TResult ConvertResult<TResult>(object result) =>
+        AtataContext.GlobalProperties.ObjectConverter.Convert<TResult>(result);
 }

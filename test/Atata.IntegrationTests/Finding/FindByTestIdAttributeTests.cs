@@ -1,11 +1,11 @@
 ﻿namespace Atata.IntegrationTests.Finding;
 
-public class FindByTestIdAttributeTests : UITestFixtureBase
+public class FindByTestIdAttributeTests : WebDriverSessionTestSuiteBase
 {
     [Test]
     public void WithValue()
     {
-        ConfigureBaseAtataContext()
+        ConfigureAtataContextWithWebDriverSession()
             .Build();
 
         Go.To<FindingPage>()
@@ -16,7 +16,7 @@ public class FindByTestIdAttributeTests : UITestFixtureBase
     [Test]
     public void WithoutArguments()
     {
-        ConfigureBaseAtataContext()
+        ConfigureAtataContextWithWebDriverSession()
             .Build();
 
         Go.To<FindingPage>()
@@ -27,10 +27,9 @@ public class FindByTestIdAttributeTests : UITestFixtureBase
     [Test]
     public void WhenDomTestIdAttributePropertiesAreConfigured()
     {
-        ConfigureBaseAtataContext()
+        BuildAtataContextWithWebDriverSession(x => x
             .UseDomTestIdAttributeName("data-autoid")
-            .UseDomTestIdAttributeDefaultCase(TermCase.PascalKebab)
-            .Build();
+            .UseDomTestIdAttributeDefaultCase(TermCase.PascalKebab));
 
         Go.To<FindingPage>()
             .Find<Control<FindingPage>>("TestId2", new FindByTestIdAttribute())

@@ -369,8 +369,8 @@ public static class UIComponentResolver
     {
         Type parentComponentType = parentComponent?.GetType();
 
-        AtataAttributesContext contextAttributes = (parentComponent?.Context ?? AtataContext.Current).Attributes;
-        UIComponentMetadata metadata = new UIComponentMetadata(name, componentType, parentComponentType);
+        AtataAttributesContext contextAttributes = (parentComponent?.Session.Context ?? AtataContext.Current).Attributes;
+        UIComponentMetadata metadata = new(name, componentType, parentComponentType);
 
         // Declared:
         metadata.DeclaredAttributesList.AddRange(declaredAttributes);

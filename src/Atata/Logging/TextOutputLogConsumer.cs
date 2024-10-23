@@ -43,13 +43,44 @@ public class TextOutputLogConsumer : ILogConsumer
         StringBuilder builder = new StringBuilder()
             .Append(eventInfo.Timestamp.ToString(TimestampFormat, CultureInfo.InvariantCulture))
             .Append(Separator)
+            .Append(eventInfo.ExecutionUnitId)
+            .Append(Separator)
             .Append($"{eventInfo.Level.ToString(TermCase.Upper),5}")
             .Append(Separator)
-            .Append(eventInfo.Message);
+            .Append(eventInfo.NestingText);
+
+        bool hasExternalSource = !string.IsNullOrEmpty(eventInfo.ExternalSource);
+
+        if (hasExternalSource)
+            builder.AppendFormat("{{{0}}}", eventInfo.ExternalSource);
+
+        bool hasCategory = !string.IsNullOrEmpty(eventInfo.Category);
+
+        if (hasCategory)
+        {
+            if (hasExternalSource)
+                builder.Append(Separator);
+
+            builder.AppendFormat("[{0}]", eventInfo.Category);
+        }
+
+        bool hasMessage = !string.IsNullOrEmpty(eventInfo.Message);
+
+        if (hasMessage)
+        {
+            if (hasCategory || hasExternalSource)
+                builder.Append(Separator);
+
+            builder.Append(eventInfo.Message);
+        }
 
         if (eventInfo.Exception != null)
-            builder.AppendIf(!string.IsNullOrWhiteSpace(eventInfo.Message), Separator)
-                .Append(eventInfo.Exception.ToString());
+        {
+            if (hasMessage || hasCategory || hasExternalSource)
+                builder.Append(Separator);
+
+            builder.Append(eventInfo.Exception.ToString());
+        }
 
         return builder.ToString();
     }

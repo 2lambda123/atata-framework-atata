@@ -1,6 +1,6 @@
 ﻿namespace Atata.IntegrationTests;
 
-public class GoTests : UITestFixture
+public class GoTests : WebDriverSessionTestSuite
 {
     protected override bool ReuseDriver => false;
 
@@ -9,7 +9,7 @@ public class GoTests : UITestFixture
     {
         Go.ToUrl(GoTo1Page.DefaultUrl);
 
-        AtataContext.Current.Driver.Url.Should().Be(BaseUrl + GoTo1Page.DefaultUrl);
+        WebDriverSession.Current.Driver.Url.Should().Be(BaseUrl + GoTo1Page.DefaultUrl);
     }
 
     [Test]
@@ -106,7 +106,7 @@ public class GoTests : UITestFixture
     {
         var page1 = Go.To<OrdinaryPage>();
         AssertCurrentPageObject(page1);
-        page1.PageUri.Should.Be(new Uri(AtataContext.Current.BaseUrl));
+        page1.PageUri.Should.Be(new Uri(WebSession.Current.BaseUrl));
     }
 
     [Test]
@@ -123,8 +123,8 @@ public class GoTests : UITestFixture
     public void To_UsingDirectNavigation_WhenUrlIsTemplated()
     {
         AtataContext.Current.Variables["GoToNumber"] = 2;
-        AtataContext.Current.Variables["GoToArg"] = 42;
-        AtataContext.Current.Variables["GoToFragment"] = "fragment";
+        WebDriverSession.Current.Variables["GoToArg"] = 42;
+        WebDriverSession.Current.Variables["GoToFragment"] = "fragment";
 
         Go.To<PageWithTemplatedUrl>()
             .PageUri.Relative.Should.Be("/goto2?arg=42#fragment");
@@ -191,7 +191,7 @@ public class GoTests : UITestFixture
         Go.To<GoTo2Page>(url: url);
 
         AssertNoTemporarilyPreservedPageObjects();
-        Assert.That(AtataContext.Current.Driver.Url, Is.EqualTo(url));
+        Assert.That(WebDriverSession.Current.Driver.Url, Is.EqualTo(url));
     }
 
     [Test]
@@ -202,7 +202,7 @@ public class GoTests : UITestFixture
         Go.To<GoTo2Page>(url: url);
 
         AssertNoTemporarilyPreservedPageObjects();
-        Assert.That(AtataContext.Current.Driver.Url, Does.EndWith(url));
+        Assert.That(WebDriverSession.Current.Driver.Url, Does.EndWith(url));
     }
 
     [Test]
@@ -213,7 +213,7 @@ public class GoTests : UITestFixture
         Go.To<GoTo2Page>(url: url);
 
         AssertNoTemporarilyPreservedPageObjects();
-        Assert.That(AtataContext.Current.Driver.Url, Does.EndWith(url));
+        Assert.That(WebDriverSession.Current.Driver.Url, Does.EndWith(url));
     }
 
     [TestCase("?arg=1", ExpectedResult = "/?arg=1")]
@@ -265,14 +265,13 @@ public class GoTests : UITestFixture
     {
         Go.To<GoTo1Page>();
 
-        var driver = AtataContext.Current.Driver;
+        var driver = WebDriverSession.Current.Driver;
 
-        AtataContext.Current.DisposeDriver = false;
+        WebDriverSession.Current.DisposeDriver = false;
         AtataContext.Current.Dispose();
 
-        ConfigureBaseAtataContext()
-            .UseDriver(driver)
-            .Build();
+        BuildAtataContextWithWebDriverSession(
+            x => x.UseDriver(driver));
 
         Go.To(new OrdinaryPage().SetNavigationUrl("/goto2"), navigate: false)
             .PageUri.Relative.Should.Be("/goto1");
@@ -460,27 +459,26 @@ public class GoTests : UITestFixture
     }
 
     private static void AssertWindowHandlesCount(int expected) =>
-        Assert.That(AtataContext.Current.Driver.WindowHandles.Count, Is.EqualTo(expected));
+        Assert.That(WebDriverSession.Current.Driver.WindowHandles.Count, Is.EqualTo(expected));
 
     private static void AssertCurrentPageObject(UIComponent pageObject) =>
-        Assert.That(AtataContext.Current.PageObject, Is.EqualTo(pageObject));
+        Assert.That(WebDriverSession.Current.PageObject, Is.EqualTo(pageObject));
 
     private static void AssertNoTemporarilyPreservedPageObjects() =>
-        Assert.That(AtataContext.Current.TemporarilyPreservedPageObjects, Is.Empty);
+        Assert.That(WebDriverSession.Current.TemporarilyPreservedPageObjects, Is.Empty);
 
     private static void AssertTemporarilyPreservedPageObjects(params UIComponent[] pageObjects)
     {
-        Assert.That(AtataContext.Current.TemporarilyPreservedPageObjects.Count, Is.EqualTo(pageObjects.Length));
-        Assert.That(AtataContext.Current.TemporarilyPreservedPageObjects, Is.EquivalentTo(pageObjects));
+        Assert.That(WebDriverSession.Current.TemporarilyPreservedPageObjects.Count, Is.EqualTo(pageObjects.Length));
+        Assert.That(WebDriverSession.Current.TemporarilyPreservedPageObjects, Is.EquivalentTo(pageObjects));
     }
 
-    public class WithoutBaseUrl : UITestFixtureBase
+    public class WithoutBaseUrl : WebDriverSessionTestSuiteBase
     {
         [SetUp]
         public void SetUp() =>
-            ConfigureBaseAtataContext()
-                .UseBaseUrl(null)
-                .Build();
+            BuildAtataContextWithWebDriverSession(
+                x => x.UseBaseUrl(null));
 
         [Test]
         public void ToUrl_Relative_WithoutPriorNavigation() =>

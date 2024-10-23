@@ -8,21 +8,19 @@
 public abstract class PageObject<TOwner> : UIComponent<TOwner>, IPageObject<TOwner>, IPageObject
     where TOwner : PageObject<TOwner>
 {
-    private readonly AtataContext _context;
+    private readonly WebDriverSession _session;
 
     private Control<TOwner> _activeControl;
 
     protected PageObject()
     {
-        _context = AtataContext.Current
-            ?? throw new InvalidOperationException(
-                $"Cannot instantiate {GetType().Name} because {nameof(AtataContext)}.{nameof(AtataContext.Current)} is null.");
+        _session = WebDriverSession.Current;
 
-        ScopeLocator = new PlainScopeLocator(CreateScopeBy);
+        ScopeLocator = new PlainScopeLocator(_session, CreateScopeBy);
 
         Owner = (TOwner)this;
 
-        Report = new Report<TOwner>((TOwner)this, _context);
+        Report = new WebSessionReport<TOwner>((TOwner)this, _session);
 
         PageUri = new UriProvider<TOwner>(this, GetUri, "URI");
 
@@ -35,7 +33,7 @@ public abstract class PageObject<TOwner> : UIComponent<TOwner>, IPageObject<TOwn
     }
 
     /// <inheritdoc/>
-    public sealed override AtataContext Context => _context;
+    public sealed override WebDriverSession Session => _session;
 
     /// <summary>
     /// Gets the source of the scope.
@@ -54,14 +52,15 @@ public abstract class PageObject<TOwner> : UIComponent<TOwner>, IPageObject<TOwn
     /// Gets the expectation verification provider that has a set of verification extension methods.
     /// </summary>
     public new PageObjectVerificationProvider<TOwner> ExpectTo
-        => Should.Using<ExpectationVerificationStrategy>();
+        => Should.Using(ExpectationVerificationStrategy.Instance);
 
     /// <summary>
     /// Gets the waiting verification provider that has a set of verification extension methods.
-    /// Uses <see cref="AtataContext.WaitingTimeout"/> and <see cref="AtataContext.WaitingRetryInterval"/> of <see cref="AtataContext.Current"/> for timeout and retry interval.
+    /// Uses <see cref="AtataContext.WaitingTimeout"/> and <see cref="AtataContext.WaitingRetryInterval"/>
+    /// of executing <see cref="AtataContext"/> for timeout and retry interval.
     /// </summary>
     public new PageObjectVerificationProvider<TOwner> WaitTo
-        => Should.Using<WaitingVerificationStrategy>();
+        => Should.Using(WaitingVerificationStrategy.Instance);
 
     /// <summary>
     /// Gets or sets the navigation URL, which can be used during page object initialization.
@@ -79,9 +78,9 @@ public abstract class PageObject<TOwner> : UIComponent<TOwner>, IPageObject<TOwn
     protected internal UIComponent PreviousPageObject { get; internal set; }
 
     /// <summary>
-    /// Gets the <see cref="Report{TOwner}"/> instance that provides a reporting functionality.
+    /// Gets the <see cref="IWebSessionReport{TOwner}"/> instance that provides a reporting functionality.
     /// </summary>
-    public Report<TOwner> Report { get; }
+    public IWebSessionReport<TOwner> Report { get; }
 
     /// <summary>
     /// Gets the title provider of the current HTML page.
@@ -145,7 +144,7 @@ public abstract class PageObject<TOwner> : UIComponent<TOwner>, IPageObject<TOwn
         UIComponentResolver.Resolve(this);
 
         OnInit();
-        Context.EventBus.Publish(new PageObjectInitEvent(this));
+        Session.EventBus.Publish(new PageObjectInitEvent(this));
     }
 
     internal void CompleteInit()
@@ -153,7 +152,7 @@ public abstract class PageObject<TOwner> : UIComponent<TOwner>, IPageObject<TOwn
         ExecuteTriggers(TriggerEvents.Init);
 
         OnInitCompleted();
-        Context.EventBus.Publish(new PageObjectInitCompletedEvent(this));
+        Session.EventBus.Publish(new PageObjectInitCompletedEvent(this));
 
         OnVerify();
     }
@@ -243,7 +242,7 @@ public abstract class PageObject<TOwner> : UIComponent<TOwner>, IPageObject<TOwn
     public TFramePageObject SwitchToFrame<TFramePageObject>(By frameBy, TFramePageObject framePageObject = null, bool temporarily = false)
         where TFramePageObject : PageObject<TFramePageObject>
     {
-        IWebElement frameElement = Scope.GetWithLogging(frameBy);
+        IWebElement frameElement = Scope.GetWithLogging(Log, frameBy);
         return SwitchToFrame(frameElement, framePageObject, temporarily);
     }
 
@@ -262,7 +261,7 @@ public abstract class PageObject<TOwner> : UIComponent<TOwner>, IPageObject<TOwn
     {
         SwitchToFrame(frameElement);
 
-        return _context.Go.To(framePageObject, navigate: false, temporarily: temporarily);
+        return _session.Go.To(framePageObject, navigate: false, temporarily: temporarily);
     }
 
     /// <summary>
@@ -291,7 +290,7 @@ public abstract class PageObject<TOwner> : UIComponent<TOwner>, IPageObject<TOwn
     {
         SwitchToRoot();
 
-        return _context.Go.To(rootPageObject, navigate: false);
+        return _session.Go.To(rootPageObject, navigate: false);
     }
 
     /// <summary>
@@ -349,7 +348,7 @@ public abstract class PageObject<TOwner> : UIComponent<TOwner>, IPageObject<TOwn
             "Refresh page",
             () => Driver.Navigate().Refresh());
 
-        return _context.Go.To<TOwner>(navigate: false);
+        return _session.Go.To<TOwner>(navigate: false);
     }
 
     /// <summary>
@@ -370,11 +369,11 @@ public abstract class PageObject<TOwner> : UIComponent<TOwner>, IPageObject<TOwn
 
         TimeSpan timeoutTime = timeout.HasValue
             ? TimeSpan.FromSeconds(timeout.Value)
-            : Context.WaitingTimeout;
+            : Session.WaitingTimeout;
 
         TimeSpan retryIntervalTime = retryInterval.HasValue
             ? TimeSpan.FromSeconds(retryInterval.Value)
-            : Context.WaitingRetryInterval;
+            : Session.WaitingRetryInterval;
 
         TOwner activePageObject = (TOwner)this;
 
@@ -416,7 +415,7 @@ public abstract class PageObject<TOwner> : UIComponent<TOwner>, IPageObject<TOwn
             "Go back",
             () => Driver.Navigate().Back());
 
-        return _context.Go.To(previousPageObject, navigate: false);
+        return _session.Go.To(previousPageObject, navigate: false);
     }
 
     /// <summary>
@@ -434,7 +433,7 @@ public abstract class PageObject<TOwner> : UIComponent<TOwner>, IPageObject<TOwn
             "Go forward",
             () => Driver.Navigate().Forward());
 
-        return _context.Go.To(nextPageObject, navigate: false);
+        return _session.Go.To(nextPageObject, navigate: false);
     }
 
     /// <summary>
@@ -444,7 +443,7 @@ public abstract class PageObject<TOwner> : UIComponent<TOwner>, IPageObject<TOwn
     {
         string nextWindowHandle = null;
 
-        _context.Log.ExecuteSection(
+        _session.Log.ExecuteSection(
             "Close window",
             () =>
             {
@@ -552,7 +551,7 @@ public abstract class PageObject<TOwner> : UIComponent<TOwner>, IPageObject<TOwn
     }
 
     /// <summary>
-    /// Executes aggregate assertion for the current page object using <see cref="AtataContext.AggregateAssert(Action, string)" /> method.
+    /// Executes aggregate assertion for the current page object using <see cref="AtataSession.AggregateAssert(Action, string)" /> method.
     /// </summary>
     /// <param name="action">The action to execute in scope of aggregate assertion.</param>
     /// <param name="assertionScopeName">
@@ -567,13 +566,13 @@ public abstract class PageObject<TOwner> : UIComponent<TOwner>, IPageObject<TOwn
 
         assertionScopeName ??= ComponentFullName;
 
-        Context.AggregateAssert(() => action((TOwner)this), assertionScopeName);
+        Session.AggregateAssert(() => action((TOwner)this), assertionScopeName);
 
         return (TOwner)this;
     }
 
     /// <summary>
-    /// Executes aggregate assertion for the component of the current page object using <see cref="AtataContext.AggregateAssert(Action, string)" /> method.
+    /// Executes aggregate assertion for the component of the current page object using <see cref="AtataSession.AggregateAssert(Action, string)" /> method.
     /// </summary>
     /// <typeparam name="TComponent">The type of the component.</typeparam>
     /// <param name="componentSelector">The component selector.</param>
@@ -593,7 +592,7 @@ public abstract class PageObject<TOwner> : UIComponent<TOwner>, IPageObject<TOwn
 
         assertionScopeName ??= UIComponentResolver.ResolveComponentFullName<TOwner>(component) ?? ComponentFullName;
 
-        Context.AggregateAssert(() => action(component), assertionScopeName);
+        Session.AggregateAssert(() => action(component), assertionScopeName);
 
         return (TOwner)this;
     }
@@ -687,7 +686,7 @@ public abstract class PageObject<TOwner> : UIComponent<TOwner>, IPageObject<TOwn
     void IPageObject.DeInit()
     {
         ExecuteTriggers(TriggerEvents.DeInit);
-        Context.EventBus.Publish(new PageObjectDeInitEvent(this));
+        Session.EventBus.Publish(new PageObjectDeInitEvent(this));
     }
 
     protected override string BuildComponentProviderName() => null;

@@ -18,7 +18,7 @@ public class Control<TOwner> : UIComponent<TOwner>, IControl<TOwner>
     where TOwner : PageObject<TOwner>
 {
     /// <inheritdoc/>
-    public sealed override AtataContext Context => Owner.Context;
+    public sealed override WebDriverSession Session => Owner.Session;
 
     /// <summary>
     /// Gets the source of the scope.
@@ -49,12 +49,12 @@ public class Control<TOwner> : UIComponent<TOwner>, IControl<TOwner>
     /// <inheritdoc cref="UIComponent{TOwner}.ExpectTo"/>
     [DebuggerBrowsable(DebuggerBrowsableState.Never)]
     public new UIComponentVerificationProvider<Control<TOwner>, TOwner> ExpectTo =>
-        Should.Using<ExpectationVerificationStrategy>();
+        Should.Using(ExpectationVerificationStrategy.Instance);
 
     /// <inheritdoc cref="UIComponent{TOwner}.WaitTo"/>
     [DebuggerBrowsable(DebuggerBrowsableState.Never)]
     public new UIComponentVerificationProvider<Control<TOwner>, TOwner> WaitTo =>
-        Should.Using<WaitingVerificationStrategy>();
+        Should.Using(WaitingVerificationStrategy.Instance);
 
     protected virtual bool GetIsEnabled() =>
         Scope.Enabled;

@@ -2,13 +2,13 @@
 
 internal class WarningBrowserLogHandler : IBrowserLogHandler
 {
-    private readonly AtataContext _context;
+    private readonly WebDriverSession _session;
 
     private readonly LogLevel _minLevelOfWarning;
 
-    public WarningBrowserLogHandler(AtataContext context, LogLevel minLevelOfWarning)
+    public WarningBrowserLogHandler(WebDriverSession session, LogLevel minLevelOfWarning)
     {
-        _context = context;
+        _session = session;
         _minLevelOfWarning = minLevelOfWarning;
     }
 
@@ -16,18 +16,20 @@ internal class WarningBrowserLogHandler : IBrowserLogHandler
     {
         if (entry.Level >= _minLevelOfWarning)
         {
-            StringBuilder messageBuilder = new StringBuilder("browser log ");
+            StringBuilder messageBuilder = new("browser log ");
             messageBuilder.Append(ConvertLogLevelToText(entry.Level));
 
-            if (_context.PageObject is not null)
-                messageBuilder.Append(" on ").Append(_context.PageObject.ComponentFullName);
+            var pageObject = _session.PageObject;
+            if (pageObject is not null)
+                messageBuilder.Append(" on ").Append(pageObject.ComponentFullName);
 
             messageBuilder
                 .Append(':')
                 .AppendLine()
                 .Append(entry.Message);
 
-            _context.RaiseWarning(messageBuilder.ToString());
+            if (_session.IsActive)
+                _session.RaiseWarning(messageBuilder.ToString());
         }
     }
 

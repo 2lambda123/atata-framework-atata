@@ -4,164 +4,125 @@
 /// Provides reporting functionality.
 /// </summary>
 /// <typeparam name="TOwner">The type of the owner.</typeparam>
-public class Report<TOwner>
+public class Report<TOwner> : IReport<TOwner>
 {
     private readonly TOwner _owner;
 
-    private readonly AtataContext _context;
+    private readonly IAtataExecutionUnit _executionUnit;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Report{TOwner}"/> class.
     /// </summary>
     /// <param name="owner">The owner.</param>
-    /// <param name="context">The context.</param>
-    public Report(TOwner owner, AtataContext context)
+    /// <param name="executionUnit">The execution unit.</param>
+    public Report(TOwner owner, IAtataExecutionUnit executionUnit)
     {
-        _owner = owner;
-        _context = context;
+        _owner = owner.CheckNotNull(nameof(owner));
+        _executionUnit = executionUnit.CheckNotNull(nameof(executionUnit));
     }
 
     /// <summary>
-    /// Gets the associated <see cref="AtataContext"/> instance.
+    /// Gets the owner.
     /// </summary>
-    public AtataContext Context => _context;
+    protected TOwner Owner => _owner;
 
-    /// <summary>
-    /// Writes a trace log message.
-    /// </summary>
-    /// <param name="message">The message.</param>
-    /// <returns>The instance of the owner object.</returns>
+    /// <inheritdoc/>
     public TOwner Trace(string message)
     {
-        _context.Log.Trace(message);
+        _executionUnit.Log.Trace(message);
         return _owner;
     }
 
-    /// <summary>
-    /// Writes a debug log message.
-    /// </summary>
-    /// <param name="message">The message.</param>
-    /// <returns>The instance of the owner object.</returns>
+    /// <inheritdoc/>
     public TOwner Debug(string message)
     {
-        _context.Log.Debug(message);
+        _executionUnit.Log.Debug(message);
         return _owner;
     }
 
-    /// <summary>
-    /// Writes an informational log message.
-    /// </summary>
-    /// <param name="message">The message.</param>
-    /// <returns>The instance of the owner object.</returns>
+    /// <inheritdoc/>
     public TOwner Info(string message)
     {
-        _context.Log.Info(message);
+        _executionUnit.Log.Info(message);
         return _owner;
     }
 
-    /// <summary>
-    /// Writes a warning log message.
-    /// </summary>
-    /// <param name="message">The message.</param>
-    /// <returns>The instance of the owner object.</returns>
+    /// <inheritdoc/>
     public TOwner Warn(string message)
     {
-        _context.Log.Warn(message);
+        _executionUnit.Log.Warn(message);
         return _owner;
     }
 
-    /// <inheritdoc cref="Warn(string)"/>
-    /// <param name="exception">The exception.</param>
+    /// <inheritdoc/>
     public TOwner Warn(Exception exception)
     {
-        _context.Log.Warn(exception);
+        _executionUnit.Log.Warn(exception);
         return _owner;
     }
 
-    /// <inheritdoc cref="Warn(string)"/>
-    /// <param name="exception">The exception.</param>
-    /// <param name="message">The message.</param>
+    /// <inheritdoc/>
     public TOwner Warn(Exception exception, string message)
     {
-        _context.Log.Warn(exception, message);
+        _executionUnit.Log.Warn(exception, message);
         return _owner;
     }
 
-    /// <inheritdoc cref="Error(string)"/>
-    /// <param name="exception">The exception.</param>
-    public TOwner Error(Exception exception)
-    {
-        _context.Log.Error(exception);
-        return _owner;
-    }
-
-    /// <summary>
-    /// Writes an error log message.
-    /// </summary>
-    /// <param name="message">The message.</param>
-    /// <returns>The instance of the owner object.</returns>
+    /// <inheritdoc/>
     public TOwner Error(string message)
     {
-        _context.Log.Error(message);
+        _executionUnit.Log.Error(message);
         return _owner;
     }
 
-    /// <inheritdoc cref="Error(string)"/>
-    /// <param name="exception">The exception.</param>
-    /// <param name="message">The message.</param>
+    /// <inheritdoc/>
+    public TOwner Error(Exception exception)
+    {
+        _executionUnit.Log.Error(exception);
+        return _owner;
+    }
+
+    /// <inheritdoc/>
     public TOwner Error(Exception exception, string message)
     {
-        _context.Log.Error(exception, message);
+        _executionUnit.Log.Error(exception, message);
         return _owner;
     }
 
-    /// <inheritdoc cref="Fatal(string)"/>
-    /// <param name="exception">The exception.</param>
-    public TOwner Fatal(Exception exception)
-    {
-        _context.Log.Fatal(exception);
-        return _owner;
-    }
-
-    /// <summary>
-    /// Writes a critical log message.
-    /// </summary>
-    /// <param name="message">The message.</param>
-    /// <returns>The instance of the owner object.</returns>
+    /// <inheritdoc/>
     public TOwner Fatal(string message)
     {
-        _context.Log.Fatal(message);
+        _executionUnit.Log.Fatal(message);
         return _owner;
     }
 
-    /// <inheritdoc cref="Fatal(string)"/>
-    /// <param name="exception">The exception.</param>
-    /// <param name="message">The message.</param>
+    /// <inheritdoc/>
+    public TOwner Fatal(Exception exception)
+    {
+        _executionUnit.Log.Fatal(exception);
+        return _owner;
+    }
+
+    /// <inheritdoc/>
     public TOwner Fatal(Exception exception, string message)
     {
-        _context.Log.Fatal(exception, message);
+        _executionUnit.Log.Fatal(exception, message);
         return _owner;
     }
 
-    /// <summary>
-    /// Executes the specified action and represents it in a log as a setup section with the specified message.
-    /// The setup action time is not counted as a "Test body" execution time, but counted as "Setup" time.
-    /// </summary>
-    /// <param name="message">The setup message.</param>
-    /// <param name="action">The setup action.</param>
-    /// <returns>The instance of the owner object.</returns>
+    /// <inheritdoc/>
     public TOwner Setup(string message, Action<TOwner> action)
     {
         message.CheckNotNullOrEmpty(nameof(message));
         action.CheckNotNull(nameof(action));
 
-        _context.Log.ExecuteSection(new SetupLogSection(message), () =>
+        _executionUnit.Log.ExecuteSection(new SetupLogSection(message), () =>
         {
-            bool shouldStopBodyExecutionStopwatch = _context.BodyExecutionStopwatch.IsRunning;
+            bool shouldStopBodyExecutionStopwatch = _executionUnit.Context.BodyExecutionStopwatch.IsRunning;
             if (shouldStopBodyExecutionStopwatch)
-                _context.BodyExecutionStopwatch.Stop();
+                _executionUnit.Context.BodyExecutionStopwatch.Stop();
 
-            _context.SetupExecutionStopwatch.Start();
+            _executionUnit.Context.SetupExecutionStopwatch.Start();
 
             try
             {
@@ -169,28 +130,21 @@ public class Report<TOwner>
             }
             catch (Exception exception)
             {
-                _context.EnsureExceptionIsLogged(exception);
+                _executionUnit.Context.EnsureExceptionIsLogged(exception);
                 throw;
             }
             finally
             {
-                _context.SetupExecutionStopwatch.Stop();
+                _executionUnit.Context.SetupExecutionStopwatch.Stop();
 
                 if (shouldStopBodyExecutionStopwatch)
-                    _context.BodyExecutionStopwatch.Start();
+                    _executionUnit.Context.BodyExecutionStopwatch.Start();
             }
         });
         return _owner;
     }
 
-    /// <summary>
-    /// Executes the specified function and represents it in a log as a setup section with the specified message.
-    /// The setup function time is not counted as a "Test body" execution time, but counted as "Setup" time.
-    /// </summary>
-    /// <typeparam name="TResult">The type of the result.</typeparam>
-    /// <param name="message">The setup message.</param>
-    /// <param name="function">The setup function.</param>
-    /// <returns>The result of the <paramref name="function"/>.</returns>
+    /// <inheritdoc/>
     public TResult Setup<TResult>(string message, Func<TOwner, TResult> function)
     {
         message.CheckNotNullOrEmpty(nameof(message));
@@ -198,13 +152,13 @@ public class Report<TOwner>
 
         TResult result = default;
 
-        _context.Log.ExecuteSection(new SetupLogSection(message), () =>
+        _executionUnit.Log.ExecuteSection(new SetupLogSection(message), () =>
         {
-            bool shouldStopBodyExecutionStopwatch = _context.BodyExecutionStopwatch.IsRunning;
+            bool shouldStopBodyExecutionStopwatch = _executionUnit.Context.BodyExecutionStopwatch.IsRunning;
             if (shouldStopBodyExecutionStopwatch)
-                _context.BodyExecutionStopwatch.Stop();
+                _executionUnit.Context.BodyExecutionStopwatch.Stop();
 
-            _context.SetupExecutionStopwatch.Start();
+            _executionUnit.Context.SetupExecutionStopwatch.Start();
 
             try
             {
@@ -212,40 +166,34 @@ public class Report<TOwner>
             }
             catch (Exception exception)
             {
-                _context.EnsureExceptionIsLogged(exception);
+                _executionUnit.Context.EnsureExceptionIsLogged(exception);
                 throw;
             }
             finally
             {
-                _context.SetupExecutionStopwatch.Stop();
+                _executionUnit.Context.SetupExecutionStopwatch.Stop();
 
                 if (shouldStopBodyExecutionStopwatch)
-                    _context.BodyExecutionStopwatch.Start();
+                    _executionUnit.Context.BodyExecutionStopwatch.Start();
             }
         });
 
         return result;
     }
 
-    /// <summary>
-    /// Executes asynchronously the specified task-based function and represents it in a log as a setup section with the specified message.
-    /// The setup action time is not counted as a "Test body" execution time, but counted as "Setup" time.
-    /// </summary>
-    /// <param name="message">The setup message.</param>
-    /// <param name="function">The setup function.</param>
-    /// <returns>The <see cref="Task"/> object.</returns>
+    /// <inheritdoc/>
     public async Task SetupAsync(string message, Func<TOwner, Task> function)
     {
         message.CheckNotNullOrEmpty(nameof(message));
         function.CheckNotNull(nameof(function));
 
-        await _context.Log.ExecuteSectionAsync(new SetupLogSection(message), async () =>
+        await _executionUnit.Log.ExecuteSectionAsync(new SetupLogSection(message), async () =>
         {
-            bool shouldStopBodyExecutionStopwatch = _context.BodyExecutionStopwatch.IsRunning;
+            bool shouldStopBodyExecutionStopwatch = _executionUnit.Context.BodyExecutionStopwatch.IsRunning;
             if (shouldStopBodyExecutionStopwatch)
-                _context.BodyExecutionStopwatch.Stop();
+                _executionUnit.Context.BodyExecutionStopwatch.Stop();
 
-            _context.SetupExecutionStopwatch.Start();
+            _executionUnit.Context.SetupExecutionStopwatch.Start();
 
             try
             {
@@ -253,27 +201,20 @@ public class Report<TOwner>
             }
             catch (Exception exception)
             {
-                _context.EnsureExceptionIsLogged(exception);
+                _executionUnit.Context.EnsureExceptionIsLogged(exception);
                 throw;
             }
             finally
             {
-                _context.SetupExecutionStopwatch.Stop();
+                _executionUnit.Context.SetupExecutionStopwatch.Stop();
 
                 if (shouldStopBodyExecutionStopwatch)
-                    _context.BodyExecutionStopwatch.Start();
+                    _executionUnit.Context.BodyExecutionStopwatch.Start();
             }
         });
     }
 
-    /// <summary>
-    /// Executes asynchronously the specified task-based function and represents it in a log as a setup section with the specified message.
-    /// The setup function time is not counted as a "Test body" execution time, but counted as "Setup" time.
-    /// </summary>
-    /// <typeparam name="TResult">The type of the result.</typeparam>
-    /// <param name="message">The setup message.</param>
-    /// <param name="function">The setup function.</param>
-    /// <returns>The <see cref="Task{TResult}"/> object with the result of the <paramref name="function"/>.</returns>
+    /// <inheritdoc/>
     public async Task<TResult> SetupAsync<TResult>(string message, Func<TOwner, Task<TResult>> function)
     {
         message.CheckNotNullOrEmpty(nameof(message));
@@ -281,13 +222,13 @@ public class Report<TOwner>
 
         TResult result = default;
 
-        await _context.Log.ExecuteSectionAsync(new SetupLogSection(message), async () =>
+        await _executionUnit.Log.ExecuteSectionAsync(new SetupLogSection(message), async () =>
         {
-            bool shouldStopBodyExecutionStopwatch = _context.BodyExecutionStopwatch.IsRunning;
+            bool shouldStopBodyExecutionStopwatch = _executionUnit.Context.BodyExecutionStopwatch.IsRunning;
             if (shouldStopBodyExecutionStopwatch)
-                _context.BodyExecutionStopwatch.Stop();
+                _executionUnit.Context.BodyExecutionStopwatch.Stop();
 
-            _context.SetupExecutionStopwatch.Start();
+            _executionUnit.Context.SetupExecutionStopwatch.Start();
 
             try
             {
@@ -295,33 +236,28 @@ public class Report<TOwner>
             }
             catch (Exception exception)
             {
-                _context.EnsureExceptionIsLogged(exception);
+                _executionUnit.Context.EnsureExceptionIsLogged(exception);
                 throw;
             }
             finally
             {
-                _context.SetupExecutionStopwatch.Stop();
+                _executionUnit.Context.SetupExecutionStopwatch.Stop();
 
                 if (shouldStopBodyExecutionStopwatch)
-                    _context.BodyExecutionStopwatch.Start();
+                    _executionUnit.Context.BodyExecutionStopwatch.Start();
             }
         });
 
         return result;
     }
 
-    /// <summary>
-    /// Executes the specified action and represents it in a log as a section with the specified message.
-    /// </summary>
-    /// <param name="message">The step message.</param>
-    /// <param name="action">The step action.</param>
-    /// <returns>The instance of the owner object.</returns>
+    /// <inheritdoc/>
     public TOwner Step(string message, Action<TOwner> action)
     {
         message.CheckNotNullOrEmpty(nameof(message));
         action.CheckNotNull(nameof(action));
 
-        _context.Log.ExecuteSection(new StepLogSection(message), () =>
+        _executionUnit.Log.ExecuteSection(new StepLogSection(message), () =>
         {
             try
             {
@@ -329,20 +265,14 @@ public class Report<TOwner>
             }
             catch (Exception exception)
             {
-                _context.EnsureExceptionIsLogged(exception);
+                _executionUnit.Context.EnsureExceptionIsLogged(exception);
                 throw;
             }
         });
         return _owner;
     }
 
-    /// <summary>
-    /// Executes the specified function and represents it in a log as a section with the specified message.
-    /// </summary>
-    /// <typeparam name="TResult">The type of the result.</typeparam>
-    /// <param name="message">The step message.</param>
-    /// <param name="function">The step function.</param>
-    /// <returns>The result of the <paramref name="function"/>.</returns>
+    /// <inheritdoc/>
     public TResult Step<TResult>(string message, Func<TOwner, TResult> function)
     {
         message.CheckNotNullOrEmpty(nameof(message));
@@ -350,7 +280,7 @@ public class Report<TOwner>
 
         TResult result = default;
 
-        _context.Log.ExecuteSection(new StepLogSection(message), () =>
+        _executionUnit.Log.ExecuteSection(new StepLogSection(message), () =>
         {
             try
             {
@@ -358,7 +288,7 @@ public class Report<TOwner>
             }
             catch (Exception exception)
             {
-                _context.EnsureExceptionIsLogged(exception);
+                _executionUnit.Context.EnsureExceptionIsLogged(exception);
                 throw;
             }
         });
@@ -366,18 +296,13 @@ public class Report<TOwner>
         return result;
     }
 
-    /// <summary>
-    /// Executes asynchronously the specified task-based function and represents it in a log as a section with the specified message.
-    /// </summary>
-    /// <param name="message">The step message.</param>
-    /// <param name="function">The step action.</param>
-    /// <returns>The <see cref="Task"/> object.</returns>
+    /// <inheritdoc/>
     public async Task StepAsync(string message, Func<TOwner, Task> function)
     {
         message.CheckNotNullOrEmpty(nameof(message));
         function.CheckNotNull(nameof(function));
 
-        await _context.Log.ExecuteSectionAsync(new StepLogSection(message), async () =>
+        await _executionUnit.Log.ExecuteSectionAsync(new StepLogSection(message), async () =>
         {
             try
             {
@@ -385,19 +310,13 @@ public class Report<TOwner>
             }
             catch (Exception exception)
             {
-                _context.EnsureExceptionIsLogged(exception);
+                _executionUnit.Context.EnsureExceptionIsLogged(exception);
                 throw;
             }
         });
     }
 
-    /// <summary>
-    /// Executes asynchronously the specified task-based function and represents it in a log as a section with the specified message.
-    /// </summary>
-    /// <typeparam name="TResult">The type of the result.</typeparam>
-    /// <param name="message">The step message.</param>
-    /// <param name="function">The step function.</param>
-    /// <returns>The <see cref="Task{TResult}"/> object with the result of the <paramref name="function"/>.</returns>
+    /// <inheritdoc/>
     public async Task<TResult> StepAsync<TResult>(string message, Func<TOwner, Task<TResult>> function)
     {
         message.CheckNotNullOrEmpty(nameof(message));
@@ -405,7 +324,7 @@ public class Report<TOwner>
 
         TResult result = default;
 
-        await _context.Log.ExecuteSectionAsync(new StepLogSection(message), async () =>
+        await _executionUnit.Log.ExecuteSectionAsync(new StepLogSection(message), async () =>
         {
             try
             {
@@ -413,35 +332,11 @@ public class Report<TOwner>
             }
             catch (Exception exception)
             {
-                _context.EnsureExceptionIsLogged(exception);
+                _executionUnit.Context.EnsureExceptionIsLogged(exception);
                 throw;
             }
         });
 
         return result;
-    }
-
-    /// <inheritdoc cref="AtataContext.TakeScreenshot(string)"/>
-    /// <returns>The instance of the owner object.</returns>
-    public TOwner Screenshot(string title = null)
-    {
-        _context.TakeScreenshot(title);
-        return _owner;
-    }
-
-    /// <inheritdoc cref="AtataContext.TakeScreenshot(ScreenshotKind, string)"/>
-    /// <returns>The instance of the owner object.</returns>
-    public TOwner Screenshot(ScreenshotKind kind, string title = null)
-    {
-        _context.TakeScreenshot(kind, title);
-        return _owner;
-    }
-
-    /// <inheritdoc cref="AtataContext.TakePageSnapshot(string)"/>
-    /// <returns>The instance of the owner object.</returns>
-    public TOwner PageSnapshot(string title = null)
-    {
-        _context.TakePageSnapshot(title);
-        return _owner;
     }
 }

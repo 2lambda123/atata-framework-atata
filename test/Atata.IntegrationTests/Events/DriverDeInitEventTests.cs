@@ -1,6 +1,6 @@
 ﻿namespace Atata.IntegrationTests.Events;
 
-public class DriverDeInitEventTests : UITestFixtureBase
+public class DriverDeInitEventTests : WebDriverSessionTestSuiteBase
 {
     private int _executionsCount;
 
@@ -11,14 +11,15 @@ public class DriverDeInitEventTests : UITestFixtureBase
     {
         _executionsCount = 0;
 
-        _context = ConfigureBaseAtataContext()
+        var builder = ConfigureAtataContextWithWebDriverSession(session => session
             .EventSubscriptions.Add<DriverDeInitEvent>((eventData, _) =>
             {
-                eventData.Driver.Should().NotBeNull().And.Be(_context.Driver);
+                eventData.Driver.Should().NotBeNull().And.Be(_context.GetWebDriver());
 
                 _executionsCount++;
-            })
-            .Build();
+            }));
+
+        _context = builder.Build();
 
         _executionsCount.Should().Be(0);
     }
@@ -34,7 +35,7 @@ public class DriverDeInitEventTests : UITestFixtureBase
     [Test]
     public void AfterRestartDriver()
     {
-        _context.RestartDriver();
+        _context.GetWebDriverSession().RestartDriver();
 
         _executionsCount.Should().Be(1);
     }

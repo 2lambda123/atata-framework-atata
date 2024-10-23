@@ -1,13 +1,13 @@
 ﻿namespace Atata.IntegrationTests.Triggers;
 
-public class VerifyH1H6AttributeTests : UITestFixture
+public class VerifyH1H6AttributeTests : WebDriverSessionTestSuite
 {
     [Test]
     public void Execute()
     {
         Go.To<HeadingPage>();
 
-        string[] logMessages = LogEntries.Select(x => x.Message).ToArray();
+        string[] logMessages = CurrentLog.GetMessagesSnapshot();
 
         string[] expectedLogMessageTexts =
         [

@@ -18,7 +18,8 @@ public abstract class PopupBox<TPopupBox, TOwner>
     public ValueProvider<string, TPopupBox> Text => new(
         (TPopupBox)this,
         new LazyObjectSource<string>(() => Alert.Text),
-        $"{KindName} text");
+        $"{KindName} text",
+        Owner.Session.ExecutionUnit);
 
     private protected TOwner Owner { get; }
 
@@ -34,8 +35,8 @@ public abstract class PopupBox<TPopupBox, TOwner>
             {
                 Alert = Owner.Driver
                     .Try(
-                        waitTimeout ?? Owner.Context.WaitingTimeout,
-                        waitRetryInterval ?? Owner.Context.WaitingRetryInterval)
+                        waitTimeout ?? Owner.Session.WaitingTimeout,
+                        waitRetryInterval ?? Owner.Session.WaitingRetryInterval)
                     .Until(driver =>
                     {
                         try

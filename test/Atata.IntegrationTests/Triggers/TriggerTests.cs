@@ -1,6 +1,6 @@
 ﻿namespace Atata.IntegrationTests.Triggers;
 
-public class TriggerTests : UITestFixture
+public class TriggerTests : WebDriverSessionTestSuite
 {
     private TriggersPage _page;
 
@@ -132,12 +132,12 @@ public class TriggerTests : UITestFixture
     {
         _page.Hierarchy.Level1.Level2.Level3.Level4.Click();
 
-        VerifyLastLogMessagesContain(
+        VerifyLastLogNestingTextsWithMessagesMatch(
             minLogLevel: LogLevel.Info,
-            "> Click \"Hierarchy\" control / \"Level 1\" item / \"Level 2\" item / \"Level 3\" item / \"Level 4\" item",
-            "> Hover on \"Hierarchy\" control / \"Level 1\" item / \"Level 2\" item / \"Level 3\" item",
-            "> Hover on \"Hierarchy\" control / \"Level 1\" item / \"Level 2\" item",
-            "> Hover on \"Hierarchy\" control / \"Level 1\" item",
+            "> Click \"Hierarchy\" control / \"Level 1\" item / \"Level 2\" item / \"Level 3\" item / \"Level 4\" item$",
+            "> Hover on \"Hierarchy\" control / \"Level 1\" item / \"Level 2\" item / \"Level 3\" item$",
+            "> Hover on \"Hierarchy\" control / \"Level 1\" item / \"Level 2\" item$",
+            "> Hover on \"Hierarchy\" control / \"Level 1\" item$",
             "< Hover on \"Hierarchy\" control / \"Level 1\" item",
             "< Hover on \"Hierarchy\" control / \"Level 1\" item / \"Level 2\" item",
             "< Hover on \"Hierarchy\" control / \"Level 1\" item / \"Level 2\" item / \"Level 3\" item",

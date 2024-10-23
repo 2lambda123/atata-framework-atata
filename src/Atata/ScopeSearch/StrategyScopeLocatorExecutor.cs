@@ -42,7 +42,7 @@ public class StrategyScopeLocatorExecutor : IStrategyScopeLocatorExecutor
                 }
             }
 
-            scopeContext = unit.ScopeContextResolver.Resolve(element);
+            scopeContext = unit.ScopeContextResolver.Resolve(element, executionData.Component.Session);
         }
 
         return Execute(executionData.FinalUnit.Strategy, scopeContext, executionData.FinalUnit.ScopeFindOptions, executionData.FinalUnit.SearchOptions);
@@ -80,7 +80,9 @@ public class StrategyScopeLocatorExecutor : IStrategyScopeLocatorExecutor
             else
             {
                 IEnumerable<ISearchContext> nextScopeSources = subsequentResult.ScopeSourceBy != null
-                    ? scopeSource.GetAllWithLogging(subsequentResult.ScopeSourceBy.With(searchOptions))
+                    ? scopeSource.GetAllWithLogging(
+                        scopeLocateOptions.Component.Log,
+                        subsequentResult.ScopeSourceBy.With(searchOptions))
                     : subsequentResult.ScopeSources;
 
                 SearchOptions nextSearchOptions = SearchOptions.SafelyAtOnce();

@@ -62,7 +62,7 @@ public abstract class FindAttribute : MulticastAttribute, IHasOptionalProperties
 
     /// <summary>
     /// Gets or sets the element find timeout in seconds.
-    /// The default value is taken from <see cref="AtataContext.ElementFindTimeout"/> property of <see cref="AtataContext.Current"/>.
+    /// The default value is taken from <see cref="WebSession.ElementFindTimeout"/> property of <see cref="WebSession.Current"/>.
     /// </summary>
     public double Timeout
     {
@@ -72,7 +72,7 @@ public abstract class FindAttribute : MulticastAttribute, IHasOptionalProperties
 
     /// <summary>
     /// Gets or sets the element find retry interval in seconds.
-    /// The default value is taken from <see cref="AtataContext.ElementFindRetryInterval"/> property of <see cref="AtataContext.Current"/>.
+    /// The default value is taken from <see cref="WebSession.ElementFindRetryInterval"/> property of <see cref="WebSession.Current"/>.
     /// </summary>
     public double RetryInterval
     {
@@ -149,7 +149,7 @@ public abstract class FindAttribute : MulticastAttribute, IHasOptionalProperties
         OptionalProperties.Resolve<Visibility?>(
             nameof(Visibility),
             metadata != null ? GetFindSettingsPropertyAttributes(metadata).Concat([(IHasOptionalProperties)metadata.ComponentDefinitionAttribute]) : null)
-        ?? AtataContext.Current?.DefaultControlVisibility
+        ?? WebDriverSession.Current?.DefaultControlVisibility
         ?? SearchOptions.DefaultVisibility;
 
     internal ScopeSource ResolveScopeSource(UIComponentMetadata metadata = null) =>
@@ -172,13 +172,13 @@ public abstract class FindAttribute : MulticastAttribute, IHasOptionalProperties
         OptionalProperties.Resolve<double?>(
             nameof(Timeout),
             metadata != null ? GetFindSettingsPropertyAttributes(metadata) : null)
-            ?? (AtataContext.Current?.ElementFindTimeout ?? RetrySettings.Timeout).TotalSeconds;
+            ?? (WebSession.Current?.ElementFindTimeout ?? AtataContext.DefaultRetryTimeout).TotalSeconds;
 
     internal double ResolveRetryInterval(UIComponentMetadata metadata = null) =>
         OptionalProperties.Resolve<double?>(
             nameof(RetryInterval),
             metadata != null ? GetFindSettingsPropertyAttributes(metadata) : null)
-            ?? (AtataContext.Current?.ElementFindRetryInterval ?? RetrySettings.Interval).TotalSeconds;
+            ?? (WebSession.Current?.ElementFindRetryInterval ?? AtataContext.DefaultRetryInterval).TotalSeconds;
 
     private IEnumerable<IHasOptionalProperties> GetFindSettingsPropertyAttributes(UIComponentMetadata metadata) =>
         metadata.GetAll<FindSettingsAttribute>(x => x.ForAttribute(GetType()));

@@ -4,9 +4,9 @@ using OpenQA.Selenium.DevTools;
 namespace Atata;
 
 /// <summary>
-/// Represents the strategy that takes a page snapshot using CDP.
+/// Represents a <see cref="WebDriverSession"/> page snapshot strategy that takes a page snapshot using CDP.
 /// </summary>
-public sealed class CdpPageSnapshotStrategy : IPageSnapshotStrategy
+public sealed class CdpPageSnapshotStrategy : IPageSnapshotStrategy<WebDriverSession>
 {
     /// <summary>
     /// Gets the singleton instance.
@@ -15,9 +15,9 @@ public sealed class CdpPageSnapshotStrategy : IPageSnapshotStrategy
         new CdpPageSnapshotStrategy();
 
     /// <inheritdoc/>
-    public FileContentWithExtension TakeSnapshot(AtataContext context)
+    public FileContentWithExtension TakeSnapshot(WebDriverSession session)
     {
-        var devTools = context.Driver.As<IDevTools>();
+        var devTools = session.Driver.As<IDevTools>();
         var devToolsSession = devTools.GetDevToolsSession();
 
         var commandResult = devToolsSession.SendCommand(

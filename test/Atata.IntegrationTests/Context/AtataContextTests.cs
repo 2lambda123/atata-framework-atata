@@ -3,25 +3,9 @@ using Atata.IntegrationTests.DataProvision;
 
 namespace Atata.IntegrationTests.Context;
 
-public class AtataContextTests : UITestFixture
+public static class AtataContextTests
 {
-    protected override bool ReuseDriver => false;
-
-    [Test]
-    public void RestartDriver()
-    {
-        AtataContext.Current.RestartDriver();
-
-        Go.To<BasicControlsPage>();
-        Assert.That(AtataContext.Current.Driver.Title, Is.Not.Null.Or.Empty);
-
-        AtataContext.Current.RestartDriver();
-
-        Assert.That(AtataContext.Current.Driver.Title, Is.Null.Or.Empty);
-        Go.To<BasicControlsPage>();
-    }
-
-    public class Artifacts : UITestFixture
+    public class Artifacts : WebDriverSessionTestSuite
     {
         [Test]
         public void SubDirectory_Should_Not_Exist() =>
@@ -65,12 +49,9 @@ public class AtataContextTests : UITestFixture
         }
     }
 
-    public class AddArtifact : UITestFixture
+    public class AddArtifact : SessionlessTestSuite
     {
         private Subject<AtataContext> _sut;
-
-        protected override AtataContextDriverInitializationStage DriverInitializationStage =>
-            AtataContextDriverInitializationStage.None;
 
         protected override void OnSetUp() =>
             _sut = AtataContext.Current.ToSutSubject();
@@ -138,13 +119,12 @@ public class AtataContextTests : UITestFixture
         }
     }
 
-    public class Variables : UITestFixtureBase
+    public class Variables : TestSuiteBase
     {
         [Test]
         public void AddViaBuilder()
         {
-            var context = ConfigureBaseAtataContext()
-                .UseDriverInitializationStage(AtataContextDriverInitializationStage.None)
+            var context = ConfigureSessionlessAtataContext()
                 .AddVariable("key1", "val1")
                 .Build();
 
@@ -155,8 +135,7 @@ public class AtataContextTests : UITestFixture
         [Test]
         public void AddViaContext()
         {
-            var context = ConfigureBaseAtataContext()
-                .UseDriverInitializationStage(AtataContextDriverInitializationStage.None)
+            var context = ConfigureSessionlessAtataContext()
                 .Build();
 
             context.Variables["key1"] = "val1";
@@ -164,113 +143,32 @@ public class AtataContextTests : UITestFixture
             context.Variables.ToSutSubject()
                 .ValueOf(x => x["key1"]).Should.Be("val1");
         }
-    }
 
-    public class FillTemplateString : UITestFixtureBase
-    {
-        private Subject<AtataContext> _sut;
-
-        [SetUp]
-        public void SetUp() =>
-            _sut = ConfigureBaseAtataContext()
-                .UseDriverInitializationStage(AtataContextDriverInitializationStage.None)
-                .AddVariable("key1", "val1")
-                .Build()
-                .ToSutSubject();
-
-        [Test]
-        public void WithPredefinedVariable() =>
-            _sut.ResultOf(x => x.FillTemplateString("start_{test-name}_end"))
-                .Should.Be($"start_{nameof(WithPredefinedVariable)}_end");
-
-        [Test]
-        public void WithCustomVariable() =>
-            _sut.ResultOf(x => x.FillTemplateString("start_{key1}_end"))
-                .Should.Be("start_val1_end");
-
-        [Test]
-        public void WithMissingVariable() =>
-            _sut.ResultOf(x => x.FillTemplateString("start_{missingkey}_end"))
-                .Should.Throw<FormatException>();
-    }
-
-    public class TakeScreenshot : UITestFixtureBase
-    {
-        [Test]
-        public void WhenNavigated()
+        public class FillTemplateString : TestSuiteBase
         {
-            ConfigureBaseAtataContext()
-                .Build();
-            Go.To<InputPage>();
+            private Subject<AtataContext> _sut;
 
-            AtataContext.Current.TakeScreenshot();
+            [SetUp]
+            public void SetUp() =>
+                _sut = ConfigureSessionlessAtataContext()
+                    .AddVariable("key1", "val1")
+                    .Build()
+                    .ToSutSubject();
 
-            AtataContext.Current.Artifacts.Should.ContainFile("01 Input page.png");
-        }
+            [Test]
+            public void WithPredefinedVariable() =>
+                _sut.ResultOf(x => x.Variables.FillTemplateString("start_{test-name}_end"))
+                    .Should.Be($"start_{nameof(WithPredefinedVariable)}_end");
 
-        [Test]
-        public void WhenNoNavigation()
-        {
-            ConfigureBaseAtataContext()
-                .Build();
+            [Test]
+            public void WithCustomVariable() =>
+                _sut.ResultOf(x => x.Variables.FillTemplateString("start_{key1}_end"))
+                    .Should.Be("start_val1_end");
 
-            AtataContext.Current.TakeScreenshot();
-
-            AtataContext.Current.Artifacts.Should.ContainFile("01.png");
-        }
-
-        [Test]
-        public void WhenThrows()
-        {
-            ConfigureBaseAtataContext()
-                .Screenshots.UseStrategy(Mock.Of<IScreenshotStrategy>(MockBehavior.Strict))
-                .Build();
-            Go.To<InputPage>();
-
-            AtataContext.Current.TakeScreenshot();
-
-            VerifyLastLogMessagesContain(LogLevel.Error, "Screenshot failed");
-            AtataContext.Current.Artifacts.Should.Not.Exist();
-        }
-    }
-
-    public class TakePageSnapshot : UITestFixtureBase
-    {
-        [Test]
-        public void WhenNavigated()
-        {
-            ConfigureBaseAtataContext()
-                .Build();
-            Go.To<InputPage>();
-
-            AtataContext.Current.TakePageSnapshot();
-
-            AtataContext.Current.Artifacts.Should.ContainFile("01 Input page.mhtml");
-        }
-
-        [Test]
-        public void WhenNoNavigation()
-        {
-            ConfigureBaseAtataContext()
-                .Build();
-
-            AtataContext.Current.TakePageSnapshot();
-
-            AtataContext.Current.Artifacts.Should.ContainFile("01.mhtml");
-        }
-
-        [Test]
-        public void WhenThrows()
-        {
-            ConfigureBaseAtataContext()
-                .PageSnapshots.UseStrategy(Mock.Of<IPageSnapshotStrategy>(MockBehavior.Strict))
-                .Build();
-            Go.To<InputPage>();
-
-            AtataContext.Current.TakePageSnapshot();
-
-            VerifyLastLogMessagesContain(LogLevel.Error, "Page snapshot failed");
-            AtataContext.Current.Artifacts.Should.Not.Exist();
+            [Test]
+            public void WithMissingVariable() =>
+                _sut.ResultOf(x => x.Variables.FillTemplateString("start_{missingkey}_end"))
+                    .Should.Throw<FormatException>();
         }
     }
 }

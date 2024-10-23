@@ -22,10 +22,13 @@ public sealed class AtataContextGlobalProperties
 
     private Lazy<DirectorySubject> _lazyArtifactsRoot;
 
+    private string _assemblyNamePatternToFindTypes = @"^(?!System($|\..+)|mscorlib$|netstandard$|Microsoft\..+)";
+
     internal AtataContextGlobalProperties()
     {
         InitBuildStart();
         _lazyArtifactsRoot = new(CreateArtifactsRootDirectorySubject);
+        SetObjectCreationalProperties();
     }
 
     /// <summary>
@@ -113,6 +116,43 @@ public sealed class AtataContextGlobalProperties
     public string ArtifactsRootPath => ArtifactsRoot.FullName.Value;
 
     /// <summary>
+    /// Gets or sets the assembly name pattern that is used to filter assemblies to find types in them
+    /// such as events, event handlers, attributes, components, etc.
+    /// The default value is <c>@"^(?!System($|\..+$)|mscorlib$|netstandard$|Microsoft\..+)"</c>,
+    /// which filters non-system assemblies.
+    /// </summary>
+    public string AssemblyNamePatternToFindTypes
+    {
+        get => _assemblyNamePatternToFindTypes;
+        set
+        {
+            _assemblyNamePatternToFindTypes = value;
+            SetObjectCreationalProperties();
+        }
+    }
+
+    /// <summary>
+    /// Gets the object converter.
+    /// </summary>
+    public IObjectConverter ObjectConverter { get; private set; }
+
+    /// <summary>
+    /// Gets the object mapper.
+    /// </summary>
+    public IObjectMapper ObjectMapper { get; private set; }
+
+    /// <summary>
+    /// Gets the object creator.
+    /// </summary>
+    public IObjectCreator ObjectCreator { get; private set; }
+
+    /// <summary>
+    /// Gets or sets the identifier generator.
+    /// The default value is an instance of <see cref="Alphanumeric4AtataIdGenerator"/>.
+    /// </summary>
+    public IAtataIdGenerator IdGenerator { get; set; } = new Alphanumeric4AtataIdGenerator();
+
+    /// <summary>
     /// Sets the default Artifacts Root path template with optionally
     /// including <c>"{build-start:yyyyMMddTHHmmss}"</c> folder in the path.
     /// </summary>
@@ -192,6 +232,36 @@ public sealed class AtataContextGlobalProperties
         return this;
     }
 
+    /// <summary>
+    /// Sets the assembly name regex pattern that is used to filter assemblies to find types in them,
+    /// such as events, event handlers, attributes, components, etc.
+    /// The default value is <c>@"^(?!System($|\..+$)|mscorlib$|netstandard$|Microsoft\..+)"</c>,
+    /// which filters non-system assemblies.
+    /// </summary>
+    /// <param name="pattern">The assembly name regex pattern.</param>
+    /// <returns>The same <see cref="AtataContextGlobalProperties"/> instance.</returns>
+    public AtataContextGlobalProperties UseAssemblyNamePatternToFindTypes(string pattern)
+    {
+        pattern.CheckNotNullOrWhitespace(nameof(pattern));
+
+        AssemblyNamePatternToFindTypes = pattern;
+        return this;
+    }
+
+    /// <summary>
+    /// Sets the identifier generator.
+    /// The default value is an instance of <see cref="Alphanumeric4AtataIdGenerator"/>.
+    /// </summary>
+    /// <param name="idGenerator">The identifier generator.</param>
+    /// <returns>The same <see cref="AtataContextGlobalProperties"/> instance.</returns>
+    public AtataContextGlobalProperties UseIdGenerator(IAtataIdGenerator idGenerator)
+    {
+        idGenerator.CheckNotNull(nameof(idGenerator));
+
+        IdGenerator = idGenerator;
+        return this;
+    }
+
     private void InitBuildStart() =>
         BuildStart = TimeZoneInfo.ConvertTimeFromUtc(BuildStartUtc, TimeZone);
 
@@ -207,5 +277,15 @@ public sealed class AtataContextGlobalProperties
         string path = TemplateStringTransformer.Transform(_artifactsRootPathTemplate, variables);
 
         return new DirectorySubject(path, nameof(ArtifactsRoot));
+    }
+
+    private void SetObjectCreationalProperties()
+    {
+        ObjectConverter = new ObjectConverter
+        {
+            AssemblyNamePatternToFindTypes = _assemblyNamePatternToFindTypes
+        };
+        ObjectMapper = new ObjectMapper(ObjectConverter);
+        ObjectCreator = new ObjectCreator(ObjectConverter, ObjectMapper);
     }
 }

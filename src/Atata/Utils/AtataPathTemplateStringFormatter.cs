@@ -4,13 +4,13 @@ internal sealed class AtataPathTemplateStringFormatter : IFormatProvider, ICusto
 {
     internal const char CharToReplaceWith = '_';
 
-    private readonly AtataTemplateStringFormatter _templateFormatter = AtataTemplateStringFormatter.Default;
+    private readonly AtataTemplateStringFormatter _templateFormatter = new(Sanitize);
 
     private AtataPathTemplateStringFormatter()
     {
     }
 
-    public static AtataPathTemplateStringFormatter Default { get; } = new AtataPathTemplateStringFormatter();
+    public static AtataPathTemplateStringFormatter Default { get; } = new();
 
     public object GetFormat(Type formatType) =>
         formatType == typeof(ICustomFormatter) ? this : null;
@@ -20,7 +20,13 @@ internal sealed class AtataPathTemplateStringFormatter : IFormatProvider, ICusto
         if (arg is null)
             return string.Empty;
 
-        string origin = _templateFormatter.Format(format, arg, formatProvider);
+        return _templateFormatter.Format(format, arg, formatProvider);
+    }
+
+    private static string Sanitize(string origin)
+    {
+        if (origin.Length == 0)
+            return origin;
 
         char[] result = new char[origin.Length];
 

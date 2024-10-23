@@ -1,7 +1,7 @@
 ﻿namespace Atata;
 
 /// <summary>
-/// Represents the Atata context, the entry point for the test set-up.
+/// Represents the context of a test scope (test, test suite, global test context).
 /// </summary>
 public sealed class AtataContext : IDisposable
 {
@@ -11,12 +11,6 @@ public sealed class AtataContext : IDisposable
     private static AtataContext s_currentThreadStaticContext;
 
     private static AtataContext s_currentStaticContext;
-
-    private readonly AssertionVerificationStrategy _assertionVerificationStrategy;
-
-    private readonly ExpectationVerificationStrategy _expectationVerificationStrategy;
-
-    private IWebDriver _driver;
 
     private bool _disposed;
 
@@ -30,13 +24,21 @@ public sealed class AtataContext : IDisposable
     /// </summary>
     public static readonly TimeSpan DefaultRetryInterval = TimeSpan.FromSeconds(0.5);
 
-    internal AtataContext()
-    {
-        _assertionVerificationStrategy = new AssertionVerificationStrategy(this);
-        _expectationVerificationStrategy = new ExpectationVerificationStrategy(this);
+    private readonly List<AtataContext> _childContexts = [];
 
-        Go = new AtataNavigator(this);
-        Report = new Report<AtataContext>(this, this);
+    internal AtataContext(AtataContext parentContext, AtataContextScope? scope, TestInfo testInfo)
+    {
+        ParentContext = parentContext;
+        Scope = scope;
+        Test = testInfo;
+
+        Id = GlobalProperties.IdGenerator.GenerateId();
+        ExecutionUnit = new AtataContextExecutionUnit(this);
+
+        Report = new Report<AtataContext>(this, ExecutionUnit);
+
+        Variables = new(parentContext?.Variables);
+        State = new(parentContext?.State);
     }
 
     /// <summary>
@@ -70,60 +72,94 @@ public sealed class AtataContext : IDisposable
     public static AtataContextGlobalProperties GlobalProperties { get; } = new();
 
     /// <summary>
-    /// Gets the global configuration.
+    /// Gets the global <see cref="AtataContext"/>.
+    /// Use <see cref="CreateBuilder(AtataContextScope)"/> method with <see cref="AtataContextScope.Global"/> value
+    /// to register one <see cref="AtataContext"/> as a global one.
     /// </summary>
-    public static AtataContextBuilder GlobalConfiguration { get; } = new AtataContextBuilder(new AtataBuildingContext());
+    public static AtataContext Global { get; private set; }
 
-    internal IDriverFactory DriverFactory { get; set; }
+    [Obsolete("Use BaseConfiguration instead.")] // Obsolete since v4.0.0.
+    public static AtataContextBuilder GlobalConfiguration => BaseConfiguration;
 
     /// <summary>
-    /// Gets the driver.
+    /// Gets the base configuration builder.
     /// </summary>
+    public static AtataContextBuilder BaseConfiguration { get; } =
+        new(contextScope: null, sessionStartScopes: AtataSessionStartScopes.None);
+
+    [Obsolete("Use AtataContext.GlobalProperties.ObjectConverter instead.")] // Obsolete since v4.0.0.
+    public IObjectConverter ObjectConverter =>
+        GlobalProperties.ObjectConverter;
+
+    [Obsolete("Use AtataContext.GlobalProperties.ObjectMapper instead.")] // Obsolete since v4.0.0.
+    public IObjectMapper ObjectMapper =>
+        GlobalProperties.ObjectMapper;
+
+    [Obsolete("Use AtataContext.GlobalProperties.ObjectCreator instead.")] // Obsolete since v4.0.0.
+    public IObjectCreator ObjectCreator =>
+        GlobalProperties.ObjectCreator;
+
+    /// <summary>
+    /// Gets the parent <see cref="AtataContext"/> instance or <see langword="null"/>.
+    /// </summary>
+    public AtataContext ParentContext { get; }
+
+    /// <summary>
+    /// Gets the child <see cref="AtataContext"/> instances of this context.
+    /// </summary>
+    public IReadOnlyList<AtataContext> ChildContexts => _childContexts;
+
+    /// <summary>
+    /// Gets the scope of context.
+    /// </summary>
+    public AtataContextScope? Scope { get; }
+
+    /// <summary>
+    /// Gets the test information.
+    /// </summary>
+    public TestInfo Test { get; }
+
+    /// <summary>
+    /// Gets the execution unit.
+    /// </summary>
+    public IAtataExecutionUnit ExecutionUnit { get; }
+
+    /// <summary>
+    /// Gets a value indicating whether this instance is active (not disposed).
+    /// </summary>
+    public bool IsActive => !_disposed;
+
+    /// <summary>
+    /// Gets the unique context identifier.
+    /// </summary>
+    public string Id { get; }
+
+    public AtataSessionCollection Sessions { get; } = [];
+
+    [Obsolete("Use GetWebDriverSession().DriverFactory instead.")] // Obsolete since v4.0.0.
     [DebuggerBrowsable(DebuggerBrowsableState.Never)]
-    public IWebDriver Driver
-    {
-        get
-        {
-            switch (DriverInitializationStage)
-            {
-                case AtataContextDriverInitializationStage.Build:
-                    return _driver;
-                case AtataContextDriverInitializationStage.OnDemand:
-                    if (_driver is null)
-                        InitDriver();
-                    return _driver;
-                default:
-                    return null;
-            }
-        }
-    }
+    internal IWebDriverFactory DriverFactory { get; set; }
 
-    /// <summary>
-    /// Gets a value indicating whether this instance has <see cref="Driver"/> instance.
-    /// </summary>
-    public bool HasDriver => _driver != null;
+    [Obsolete("Use GetWebDriver() or GetWebDriverSession().Driver instead.")] // Obsolete since v4.0.0.
+    [DebuggerBrowsable(DebuggerBrowsableState.Never)]
+    public IWebDriver Driver =>
+        this.GetWebDriverSession().Driver;
 
-    /// <summary>
-    /// Gets the driver alias.
-    /// </summary>
-    public string DriverAlias { get; internal set; }
+    // TODO: Change HasDriver obsolete message.
+    [Obsolete("Use GetWebDriverSession().HasDriver instead.")] // Obsolete since v4.0.0.
+    [DebuggerBrowsable(DebuggerBrowsableState.Never)]
+    public bool HasDriver =>
+        this.GetWebDriverSession().HasDriver;
 
-    internal bool DisposeDriver { get; set; }
-
-    /// <summary>
-    /// Gets the driver initialization stage.
-    /// </summary>
-    public AtataContextDriverInitializationStage DriverInitializationStage { get; internal set; }
+    [Obsolete("Use GetWebDriverSession().DriverAlias instead.")] // Obsolete since v4.0.0.
+    [DebuggerBrowsable(DebuggerBrowsableState.Never)]
+    public string DriverAlias =>
+        this.GetWebDriverSession().DriverAlias;
 
     /// <summary>
     /// Gets the instance of the log manager.
     /// </summary>
     public ILogManager Log { get; internal set; }
-
-    /// <summary>
-    /// Gets the test information.
-    /// </summary>
-    public TestInfo Test { get; } = new();
 
     /// <summary>
     /// Gets the local date/time of the start.
@@ -135,10 +171,10 @@ public sealed class AtataContext : IDisposable
     /// </summary>
     public DateTime StartedAtUtc { get; private set; }
 
-    /// <summary>
-    /// Gets or sets the base URL.
-    /// </summary>
-    public string BaseUrl { get; set; }
+    [Obsolete("Use GetWebSession().BaseUrl instead.")] // Obsolete since v4.0.0.
+    [DebuggerBrowsable(DebuggerBrowsableState.Never)]
+    public string BaseUrl =>
+        this.GetWebSession().BaseUrl;
 
     /// <summary>
     /// Gets the base retry timeout.
@@ -152,17 +188,15 @@ public sealed class AtataContext : IDisposable
     /// </summary>
     public TimeSpan BaseRetryInterval { get; internal set; }
 
-    /// <summary>
-    /// Gets the element find timeout.
-    /// The default value is <c>5</c> seconds.
-    /// </summary>
-    public TimeSpan ElementFindTimeout { get; internal set; }
+    [Obsolete("Use GetWebSession().ElementFindTimeout instead.")] // Obsolete since v4.0.0.
+    [DebuggerBrowsable(DebuggerBrowsableState.Never)]
+    public TimeSpan ElementFindTimeout =>
+        this.GetWebSession().ElementFindTimeout;
 
-    /// <summary>
-    /// Gets the element find retry interval.
-    /// The default value is <c>500</c> milliseconds.
-    /// </summary>
-    public TimeSpan ElementFindRetryInterval { get; internal set; }
+    [Obsolete("Use GetWebSession().ElementFindRetryInterval instead.")] // Obsolete since v4.0.0.
+    [DebuggerBrowsable(DebuggerBrowsableState.Never)]
+    public TimeSpan ElementFindRetryInterval =>
+        this.GetWebSession().ElementFindRetryInterval;
 
     /// <summary>
     /// Gets the waiting timeout.
@@ -188,11 +222,10 @@ public sealed class AtataContext : IDisposable
     /// </summary>
     public TimeSpan VerificationRetryInterval { get; internal set; }
 
-    /// <summary>
-    /// Gets the default control visibility.
-    /// The default value is <see cref="Visibility.Any"/>.
-    /// </summary>
-    public Visibility DefaultControlVisibility { get; internal set; }
+    [Obsolete("Use GetWebDriverSession().DefaultControlVisibility instead.")] // Obsolete since v4.0.0.
+    [DebuggerBrowsable(DebuggerBrowsableState.Never)]
+    public Visibility DefaultControlVisibility =>
+        this.GetWebDriverSession().DefaultControlVisibility;
 
     /// <summary>
     /// Gets the culture.
@@ -271,25 +304,20 @@ public sealed class AtataContext : IDisposable
     /// </summary>
     public string ArtifactsPath => Artifacts?.FullName.Value;
 
-    /// <summary>
-    /// Gets the <see cref="AtataNavigator"/> instance,
-    /// which provides the navigation functionality between pages and windows.
-    /// </summary>
-    public AtataNavigator Go { get; }
+    [Obsolete("Use GetWebSession().Go instead.")] // Obsolete since v4.0.0.
+    [DebuggerBrowsable(DebuggerBrowsableState.Never)]
+    public AtataNavigator Go =>
+        this.GetWebSession().Go;
 
     /// <summary>
-    /// Gets the <see cref="Report{TOwner}"/> instance that provides a reporting functionality.
+    /// Gets the <see cref="IReport{TOwner}"/> instance that provides a reporting functionality.
     /// </summary>
-    public Report<AtataContext> Report { get; }
+    public IReport<AtataContext> Report { get; }
 
-    /// <summary>
-    /// Gets the current page object.
-    /// </summary>
-    public UIComponent PageObject { get; internal set; }
-
-    internal List<UIComponent> TemporarilyPreservedPageObjectList { get; private set; } = [];
-
-    internal bool IsNavigated { get; set; }
+    [Obsolete("Use GetWebSession().PageObject instead.")] // Obsolete since v4.0.0.
+    [DebuggerBrowsable(DebuggerBrowsableState.Never)]
+    public UIComponent PageObject =>
+        this.GetWebSession().PageObject;
 
     internal Stopwatch ExecutionStopwatch { get; } = Stopwatch.StartNew();
 
@@ -297,44 +325,28 @@ public sealed class AtataContext : IDisposable
 
     internal Stopwatch SetupExecutionStopwatch { get; } = new Stopwatch();
 
-    internal ScreenshotTaker ScreenshotTaker { get; set; }
+    [Obsolete("Use GetWebDriverSession().TemporarilyPreservedPageObjects instead.")] // Obsolete since v4.0.0.
+    [DebuggerBrowsable(DebuggerBrowsableState.Never)]
+    public IReadOnlyList<UIComponent> TemporarilyPreservedPageObjects =>
+        this.GetWebDriverSession().TemporarilyPreservedPageObjects;
 
-    internal PageSnapshotTaker PageSnapshotTaker { get; set; }
-
-    public ReadOnlyCollection<UIComponent> TemporarilyPreservedPageObjects =>
-        TemporarilyPreservedPageObjectList.ToReadOnly();
-
-    /// <summary>
-    /// Gets the UI component access chain scope cache.
-    /// </summary>
-    public UIComponentAccessChainScopeCache UIComponentAccessChainScopeCache { get; } = new UIComponentAccessChainScopeCache();
+    [Obsolete("Use GetWebDriverSession().UIComponentAccessChainScopeCache instead.")] // Obsolete since v4.0.0.
+    [DebuggerBrowsable(DebuggerBrowsableState.Never)]
+    public UIComponentAccessChainScopeCache UIComponentAccessChainScopeCache =>
+        this.GetWebDriverSession().UIComponentAccessChainScopeCache;
 
     /// <summary>
-    /// Gets the object creator.
-    /// </summary>
-    public IObjectCreator ObjectCreator { get; internal set; }
-
-    /// <summary>
-    /// Gets the object converter.
-    /// </summary>
-    public IObjectConverter ObjectConverter { get; internal set; }
-
-    /// <summary>
-    /// Gets the object mapper.
-    /// </summary>
-    public IObjectMapper ObjectMapper { get; internal set; }
-
-    /// <summary>
-    /// Gets the event bus, which can used to subscribe to and publish events.
+    /// Gets the event bus of <see cref="AtataContext"/>,
+    /// which can used to subscribe to and publish events.
     /// </summary>
     public IEventBus EventBus { get; internal set; }
 
     /// <summary>
     /// <para>
-    /// Gets the variables dictionary.
+    /// Gets the variables hierarchical dictionary of this context.
     /// </para>
     /// <para>
-    /// The list of predefined variables:
+    /// List of predefined variables:
     /// </para>
     /// <list type="bullet">
     /// <item><c>artifacts</c></item>
@@ -344,35 +356,100 @@ public sealed class AtataContext : IDisposable
     /// <item><c>test-suite-name</c></item>
     /// <item><c>test-start</c></item>
     /// <item><c>test-start-utc</c></item>
-    /// <item><c>driver-alias</c></item>
+    /// <item><c>context-id</c></item>
+    /// <item><c>execution-unit-id</c></item>
     /// </list>
     /// <para>
     /// Custom variables can be added as well.
     /// </para>
     /// </summary>
-    public IDictionary<string, object> Variables { get; } = new Dictionary<string, object>();
+    public VariableHierarchicalDictionary Variables { get; }
 
     /// <summary>
-    /// Gets the name of the DOM test identifier attribute.
-    /// The default value is <c>"data-testid"</c>.
+    /// Gets the state hierarchical dictionary of this context.
+    /// By default the dictionary is empty.
     /// </summary>
-    public string DomTestIdAttributeName { get; internal set; }
+    public StateHierarchicalDictionary State { get; }
+
+    [Obsolete("Use GetWebSession().DomTestIdAttributeName instead.")] // Obsolete since v4.0.0.
+    [DebuggerBrowsable(DebuggerBrowsableState.Never)]
+    public string DomTestIdAttributeName =>
+        this.GetWebSession().DomTestIdAttributeName;
+
+    [Obsolete("Use GetWebSession().DomTestIdAttributeDefaultCase instead.")] // Obsolete since v4.0.0.
+    [DebuggerBrowsable(DebuggerBrowsableState.Never)]
+    public TermCase DomTestIdAttributeDefaultCase =>
+        this.GetWebSession().DomTestIdAttributeDefaultCase;
 
     /// <summary>
-    /// Gets the default case of the DOM test identifier attribute.
-    /// The default value is <see cref="TermCase.Kebab"/>.
+    /// Gets the current <see cref="AtataContext"/> instance.
+    /// If it's missing (<see cref="Current"/> is <see langword="null"/>), throws <see cref="AtataContextNotFoundException"/>.
     /// </summary>
-    public TermCase DomTestIdAttributeDefaultCase { get; internal set; }
+    /// <returns>An <see cref="AtataContext"/> instance.</returns>
+    public static AtataContext ResolveCurrent() =>
+        Current ?? throw AtataContextNotFoundException.Create();
+
+    [Obsolete("Use CreateBuilder(...) instead.")] // Obsolete since v4.0.0.
+    public static AtataContextBuilder Configure() =>
+        CreateBuilder(AtataContextScope.Test);
 
     /// <summary>
     /// Creates <see cref="AtataContextBuilder"/> instance for <see cref="AtataContext"/> configuration.
-    /// Sets the value to <see cref="AtataContextBuilder.BuildingContext"/> copied from <see cref="GlobalConfiguration"/>.
+    /// The builder is a copy of <see cref="BaseConfiguration"/>, with the specified
+    /// <paramref name="scope"/> as a <see cref="AtataContextBuilder.Scope"/> of the new builder.
+    /// </summary>
+    /// <param name="scope">The scope of context.</param>
+    /// <returns>The created <see cref="AtataContextBuilder"/> instance.</returns>
+    public static AtataContextBuilder CreateBuilder(AtataContextScope scope)
+    {
+        ValidateNewBuilderScope(scope);
+        return BaseConfiguration.CloneFor(scope);
+    }
+
+    /// <summary>
+    /// Creates default <see cref="AtataContextBuilder"/> instance for <see cref="AtataContext"/> configuration.
+    /// The builder is a new instance of <see cref="AtataContextBuilder"/> class, with the specified
+    /// <paramref name="scope"/> as a <see cref="AtataContextBuilder.Scope"/> of the new builder.
+    /// </summary>
+    /// <param name="scope">The scope of context.</param>
+    /// <returns>The created <see cref="AtataContextBuilder"/> instance.</returns>
+    public static AtataContextBuilder CreateDefaultBuilder(AtataContextScope scope)
+    {
+        ValidateNewBuilderScope(scope);
+        return new(scope);
+    }
+
+    /// <summary>
+    /// Creates <see cref="AtataContextBuilder"/> instance for <see cref="AtataContext"/> configuration.
+    /// The builder is a copy of <see cref="BaseConfiguration"/>, with
+    /// <see langword="null"/> as a <see cref="AtataContextBuilder.Scope"/> of the new builder.
     /// </summary>
     /// <returns>The created <see cref="AtataContextBuilder"/> instance.</returns>
-    public static AtataContextBuilder Configure()
+    public static AtataContextBuilder CreateNonScopedBuilder() =>
+        BaseConfiguration.CopyFor(scope: null);
+
+    /// <summary>
+    /// Creates default <see cref="AtataContextBuilder"/> instance for <see cref="AtataContext"/> configuration.
+    /// The builder is a new instance of <see cref="AtataContextBuilder"/> class, with
+    /// <see langword="null"/> as a <see cref="AtataContextBuilder.Scope"/> of the new builder.
+    /// </summary>
+    /// <returns>The created <see cref="AtataContextBuilder"/> instance.</returns>
+    public static AtataContextBuilder CreateDefaultNonScopedBuilder() =>
+        new(contextScope: null, sessionStartScopes: null);
+
+    private static void ValidateNewBuilderScope(AtataContextScope scope)
     {
-        AtataBuildingContext buildingContext = GlobalConfiguration.BuildingContext.Clone();
-        return new AtataContextBuilder(buildingContext);
+        if (scope == AtataContextScope.Global && Global is not null)
+            throw new InvalidOperationException(
+                $"{nameof(AtataContext)}.{nameof(Global)} is already set. There can be only one global context configured.");
+    }
+
+    internal void AddChildContext(AtataContext context)
+    {
+        lock (_childContexts)
+        {
+            _childContexts.Add(context);
+        }
     }
 
     internal void InitDateTimeProperties()
@@ -385,14 +462,14 @@ public sealed class AtataContext : IDisposable
     {
         var variables = Variables;
 
-        variables["test-name-sanitized"] = Test.NameSanitized;
-        variables["test-name"] = Test.Name;
-        variables["test-suite-name-sanitized"] = Test.SuiteNameSanitized;
-        variables["test-suite-name"] = Test.SuiteName;
-        variables["test-start"] = StartedAt;
-        variables["test-start-utc"] = StartedAtUtc;
-
-        variables["driver-alias"] = DriverAlias;
+        variables.SetInitialValue("execution-unit-id", Id);
+        variables.SetInitialValue("context-id", Id);
+        variables.SetInitialValue("test-name-sanitized", Test.NameSanitized);
+        variables.SetInitialValue("test-name", Test.Name);
+        variables.SetInitialValue("test-suite-name-sanitized", Test.SuiteNameSanitized);
+        variables.SetInitialValue("test-suite-name", Test.SuiteName);
+        variables.SetInitialValue("test-start", StartedAt);
+        variables.SetInitialValue("test-start-utc", StartedAtUtc);
     }
 
     internal void InitCustomVariables(IEnumerable<KeyValuePair<string, object>> customVariables)
@@ -400,15 +477,15 @@ public sealed class AtataContext : IDisposable
         var variables = Variables;
 
         foreach (var variable in customVariables)
-            variables[variable.Key] = variable.Value;
+            variables.SetInitialValue(variable.Key, variable.Value);
     }
 
     internal void InitArtifactsVariable() =>
-        Variables["artifacts"] = ArtifactsPath;
+        Variables.SetInitialValue("artifacts", ArtifactsPath);
 
     internal void LogTestStart()
     {
-        StringBuilder logMessageBuilder = new StringBuilder(
+        StringBuilder logMessageBuilder = new(
             $"Starting {Test.GetTestUnitKindName()}");
 
         string testFullName = Test.FullName;
@@ -420,46 +497,51 @@ public sealed class AtataContext : IDisposable
     }
 
     /// <summary>
-    /// Executes aggregate assertion using <see cref="AggregateAssertionStrategy" />.
+    /// Executes an aggregate assertion using <see cref="AggregateAssertionStrategy" />.
     /// </summary>
     /// <param name="action">The action to execute in scope of aggregate assertion.</param>
     /// <param name="assertionScopeName">
-    /// Name of the scope being asserted (page object, control, etc.).
+    /// Name of the scope being asserted.
     /// Is used to identify the assertion section in log.
-    /// Can be null.
+    /// Can be <see langword="null"/>.
     /// </param>
-    public void AggregateAssert(Action action, string assertionScopeName = null)
+    public void AggregateAssert(Action action, string assertionScopeName = null) =>
+        AggregateAssert(action, Log, assertionScopeName);
+
+    internal void AggregateAssert(Action action, ILogManager log, string assertionScopeName = null)
     {
         action.CheckNotNull(nameof(action));
 
         try
         {
-            AggregateAssertionStrategy.Assert(() =>
-            {
-                AggregateAssertionLevel++;
+            AggregateAssertionStrategy.Assert(
+                ExecutionUnit,
+                () =>
+                {
+                    AggregateAssertionLevel++;
 
-                try
-                {
-                    Log.ExecuteSection(
-                        new AggregateAssertionLogSection(assertionScopeName),
-                        () =>
-                        {
-                            try
+                    try
+                    {
+                        log.ExecuteSection(
+                            new AggregateAssertionLogSection(assertionScopeName),
+                            () =>
                             {
-                                action.Invoke();
-                            }
-                            catch (Exception exception)
-                            {
-                                EnsureExceptionIsLogged(exception);
-                                throw;
-                            }
-                        });
-                }
-                finally
-                {
-                    AggregateAssertionLevel--;
-                }
-            });
+                                try
+                                {
+                                    action.Invoke();
+                                }
+                                catch (Exception exception)
+                                {
+                                    EnsureExceptionIsLogged(exception, log);
+                                    throw;
+                                }
+                            });
+                    }
+                    finally
+                    {
+                        AggregateAssertionLevel--;
+                    }
+                });
         }
         catch (Exception exception)
         {
@@ -468,229 +550,30 @@ public sealed class AtataContext : IDisposable
         }
     }
 
-    internal void EnsureExceptionIsLogged(Exception exception)
+    internal void EnsureExceptionIsLogged(Exception exception, ILogManager log = null)
     {
         if (exception != LastLoggedException)
         {
-            Log.Error(exception.ToString());
+            (log ?? Log).Error(exception.ToString());
             LastLoggedException = exception;
         }
     }
 
-    internal void InitDriver() =>
-        Log.ExecuteSection(
-            new LogSection("Initialize Driver", LogLevel.Trace),
-            () =>
-            {
-                if (DriverFactory is null)
-                    throw new WebDriverInitializationException(
-                        $"Failed to create a driver as driver factory is not specified.");
-
-                _driver = DriverFactory.Create()
-                    ?? throw new WebDriverInitializationException(
-                        $"Driver factory returned null as a driver.");
-
-                // TODO: v4. Move these RetrySettings out of here.
-                RetrySettings.Timeout = ElementFindTimeout;
-                RetrySettings.Interval = ElementFindRetryInterval;
-
-                EventBus.Publish(new DriverInitEvent(_driver));
-            });
-
-    /// <summary>
-    /// Restarts the driver.
-    /// </summary>
+    [Obsolete("Use GetWebDriverSession().RestartDriver() instead.")] // Obsolete since v4.0.0.
     public void RestartDriver() =>
-        Log.ExecuteSection(
-            new LogSection("Restart driver"),
-            () =>
-            {
-                CleanUpTemporarilyPreservedPageObjectList();
+        this.GetWebDriverSession().RestartDriver();
 
-                if (PageObject != null)
-                {
-                    UIComponentResolver.CleanUpPageObject(PageObject);
-                    PageObject = null;
-                }
-
-                EventBus.Publish(new DriverDeInitEvent(_driver));
-                DisposeDriverSafely();
-
-                InitDriver();
-            });
-
-    internal void CleanUpTemporarilyPreservedPageObjectList()
-    {
-        UIComponentResolver.CleanUpPageObjects(TemporarilyPreservedPageObjects);
-        TemporarilyPreservedPageObjectList.Clear();
-    }
-
-    /// <summary>
-    /// <para>
-    /// Fills the template string with variables of this <see cref="AtataContext"/> instance.
-    /// The <paramref name="template"/> can contain variables wrapped with curly braces, e.g. <c>"{varName}"</c>.
-    /// </para>
-    /// <para>
-    /// Variables support standard .NET formatting (<c>"{numberVar:D5}"</c> or <c>"{dateTimeVar:yyyy-MM-dd}"</c>)
-    /// and extended formatting for strings
-    /// (for example, <c>"{stringVar:/*}"</c> appends <c>"/"</c> to the beginning of the string, if variable is not null).
-    /// In order to output a <c>{</c> use <c>{{</c>, and to output a <c>}</c> use <c>}}</c>.
-    /// </para>
-    /// <para>
-    /// The list of predefined variables:
-    /// </para>
-    /// <list type="bullet">
-    /// <item><c>{artifacts}</c></item>
-    /// <item><c>{test-name-sanitized}</c></item>
-    /// <item><c>{test-name}</c></item>
-    /// <item><c>{test-suite-name-sanitized}</c></item>
-    /// <item><c>{test-suite-name}</c></item>
-    /// <item><c>{test-start}</c></item>
-    /// <item><c>{test-start-utc}</c></item>
-    /// <item><c>{driver-alias}</c></item>
-    /// </list>
-    /// </summary>
-    /// <param name="template">The template string.</param>
-    /// <returns>The filled string.</returns>
-    public string FillTemplateString(string template) =>
-        FillTemplateString(template, null);
-
-    /// <inheritdoc cref="FillTemplateString(string)"/>
-    /// <param name="template">The template string.</param>
-    /// <param name="additionalVariables">The additional variables.</param>
-    public string FillTemplateString(string template, IEnumerable<KeyValuePair<string, object>> additionalVariables) =>
-        TransformTemplateString(template, additionalVariables, TemplateStringTransformer.Transform);
-
-    /// <summary>
-    /// <para>
-    /// Fills the path template string with variables of this <see cref="AtataContext"/> instance.
-    /// The <paramref name="template"/> can contain variables wrapped with curly braces, e.g. <c>"{varName}"</c>.
-    /// </para>
-    /// <para>
-    /// Variables are sanitized for path by replacing invalid characters with <c>'_'</c>.
-    /// </para>
-    /// <para>
-    /// Variables support standard .NET formatting (<c>"{numberVar:D5}"</c> or <c>"{dateTimeVar:yyyy-MM-dd}"</c>)
-    /// and extended formatting for strings
-    /// (for example, <c>"{stringVar:/*}"</c> appends <c>"/"</c> to the beginning of the string, if variable is not null).
-    /// In order to output a <c>{</c> use <c>{{</c>, and to output a <c>}</c> use <c>}}</c>.
-    /// </para>
-    /// <para>
-    /// The list of predefined variables:
-    /// </para>
-    /// <list type="bullet">
-    /// <item><c>{artifacts}</c></item>
-    /// <item><c>{test-name-sanitized}</c></item>
-    /// <item><c>{test-name}</c></item>
-    /// <item><c>{test-suite-name-sanitized}</c></item>
-    /// <item><c>{test-suite-name}</c></item>
-    /// <item><c>{test-start}</c></item>
-    /// <item><c>{test-start-utc}</c></item>
-    /// <item><c>{driver-alias}</c></item>
-    /// </list>
-    /// </summary>
-    /// <param name="template">The template string.</param>
-    /// <returns>The filled string.</returns>
-    public string FillPathTemplateString(string template) =>
-        FillPathTemplateString(template, null);
-
-    /// <inheritdoc cref="FillPathTemplateString(string)"/>
-    /// <param name="template">The template string.</param>
-    /// <param name="additionalVariables">The additional variables.</param>
-    public string FillPathTemplateString(string template, IEnumerable<KeyValuePair<string, object>> additionalVariables) =>
-        TransformTemplateString(template, additionalVariables, TemplateStringTransformer.TransformPath);
-
-    /// <summary>
-    /// <para>
-    /// Fills the path template string with variables of this <see cref="AtataContext"/> instance.
-    /// The <paramref name="template"/> can contain variables wrapped with curly braces, e.g. <c>"{varName}"</c>.
-    /// </para>
-    /// <para>
-    /// Variables support standard .NET formatting (<c>"{numberVar:D5}"</c> or <c>"{dateTimeVar:yyyy-MM-dd}"</c>)
-    /// and extended formatting for strings
-    /// (for example, <c>"{stringVar:/*}"</c> appends <c>"/"</c> to the beginning of the string, if variable is not null).
-    /// In order to output a <c>{</c> use <c>{{</c>, and to output a <c>}</c> use <c>}}</c>.
-    /// </para>
-    /// <para>
-    /// Variables are escaped by default using <see cref="Uri.EscapeDataString(string)"/> method.
-    /// In order to not escape a variable, use <c>:noescape</c> modifier, for example <c>"{stringVar:noescape}"</c>.
-    /// To escape a variable using <see cref="Uri.EscapeUriString(string)"/> method,
-    /// preserving special URI symbols,
-    /// use <c>:uriescape</c> modifier, for example <c>"{stringVar:uriescape}"</c>.
-    /// Use <c>:dataescape</c> in complex scenarios (like adding optional query parameter)
-    /// together with an extended formatting, for example <c>"{stringVar:dataescape:?q=*}"</c>,
-    /// to escape the value and prefix it with "?q=", but nothing will be output in case
-    /// <c>stringVar</c> is <see langword="null"/>.
-    /// </para>
-    /// <para>
-    /// The list of predefined variables:
-    /// </para>
-    /// <list type="bullet">
-    /// <item><c>{artifacts}</c></item>
-    /// <item><c>{test-name-sanitized}</c></item>
-    /// <item><c>{test-name}</c></item>
-    /// <item><c>{test-suite-name-sanitized}</c></item>
-    /// <item><c>{test-suite-name}</c></item>
-    /// <item><c>{test-start}</c></item>
-    /// <item><c>{test-start-utc}</c></item>
-    /// <item><c>{driver-alias}</c></item>
-    /// </list>
-    /// </summary>
-    /// <param name="template">The template string.</param>
-    /// <returns>The filled string.</returns>
-    public string FillUriTemplateString(string template) =>
-        FillUriTemplateString(template, null);
-
-    /// <inheritdoc cref="FillUriTemplateString(string)"/>
-    /// <param name="template">The template string.</param>
-    /// <param name="additionalVariables">The additional variables.</param>
-    public string FillUriTemplateString(string template, IEnumerable<KeyValuePair<string, object>> additionalVariables) =>
-        TransformTemplateString(template, additionalVariables, TemplateStringTransformer.TransformUri);
-
-    private string TransformTemplateString(
-        string template,
-        IEnumerable<KeyValuePair<string, object>> additionalVariables,
-        Func<string, IDictionary<string, object>, string> transformFunction)
-    {
-        template.CheckNotNull(nameof(template));
-
-        if (!template.Contains('{'))
-            return template;
-
-        var variables = Variables;
-
-        if (additionalVariables != null)
-        {
-            variables = new Dictionary<string, object>(variables);
-
-            foreach (var variable in additionalVariables)
-                variables[variable.Key] = variable.Value;
-        }
-
-        return transformFunction(template, variables);
-    }
-
-    /// <summary>
-    /// Takes a screenshot of the current page with an optionally specified title.
-    /// </summary>
-    /// <param name="title">The title of a screenshot.</param>
+    [Obsolete("Use GetWebSession().TakeScreenshot(string) instead.")] // Obsolete since v4.0.0.
     public void TakeScreenshot(string title = null) =>
-        ScreenshotTaker?.TakeScreenshot(title);
+        this.GetWebSession().TakeScreenshot(title);
 
-    /// <summary>
-    /// Takes a screenshot of the current page of a certain kind with an optionally specified title.
-    /// </summary>
-    /// <param name="kind">The kind of a screenshot.</param>
-    /// <param name="title">The title of a screenshot.</param>
+    [Obsolete("Use GetWebSession().TakeScreenshot(ScreenshotKind, string) instead.")] // Obsolete since v4.0.0.
     public void TakeScreenshot(ScreenshotKind kind, string title = null) =>
-        ScreenshotTaker?.TakeScreenshot(kind, title);
+        this.GetWebSession().TakeScreenshot(kind, title);
 
-    /// <summary>
-    /// Takes a snapshot (HTML or MHTML file) of the current page with an optionally specified title.
-    /// </summary>
-    /// <param name="title">The title of a snapshot.</param>
+    [Obsolete("Use GetWebSession().TakePageSnapshot(string) instead.")] // Obsolete since v4.0.0.
     public void TakePageSnapshot(string title = null) =>
-        PageSnapshotTaker?.TakeSnapshot(title);
+        this.GetWebSession().TakePageSnapshot(title);
 
     /// <summary>
     /// Adds the file to the Artifacts directory.
@@ -810,7 +693,7 @@ public sealed class AtataContext : IDisposable
     /// <param name="message">The message.</param>
     /// <param name="exception">The optional exception.</param>
     public void RaiseError(string message, Exception exception = null) =>
-        _assertionVerificationStrategy.ReportFailure(message, exception);
+        AssertionVerificationStrategy.Instance.ReportFailure(ExecutionUnit, message, exception);
 
     /// <summary>
     /// Raises the warning by recording an assertion warning.
@@ -818,7 +701,7 @@ public sealed class AtataContext : IDisposable
     /// <param name="message">The message.</param>
     /// <param name="exception">The optional exception.</param>
     public void RaiseWarning(string message, Exception exception = null) =>
-        _expectationVerificationStrategy.ReportFailure(message, exception);
+        ExpectationVerificationStrategy.Instance.ReportFailure(ExecutionUnit, message, exception);
 
     /// <summary>
     /// Sets this context as current, by setting it to <see cref="Current"/> property.
@@ -847,14 +730,9 @@ public sealed class AtataContext : IDisposable
     /// Also writes the execution time to log;
     /// throws <see cref="AggregateAssertionException"/> if
     /// <see cref="PendingFailureAssertionResults"/> is not empty (contains warnings).
-    /// If <see cref="AtataBuildingContext.DisposeDriver"/> property is set to <see langword="true"/> (by default),
-    /// then the <see cref="Driver"/> will also be disposed.
-    /// Publishes events: <see cref="AtataContextDeInitEvent"/>, <see cref="DriverDeInitEvent"/>, <see cref="AtataContextDeInitCompletedEvent"/>.
+    /// Publishes events: <see cref="AtataContextDeInitEvent"/>, <see cref="AtataSessionDeInitEvent"/> (for sessions), <see cref="AtataContextDeInitCompletedEvent"/>.
     /// </summary>
-    public void Dispose() =>
-        DisposeTogetherWithDriver(DisposeDriver);
-
-    private void DisposeTogetherWithDriver(bool disposeDriver)
+    public void Dispose()
     {
         if (_disposed)
             return;
@@ -868,22 +746,19 @@ public sealed class AtataContext : IDisposable
             {
                 EventBus.Publish(new AtataContextDeInitEvent(this));
 
-                CleanUpTemporarilyPreservedPageObjectList();
+                foreach (var session in Sessions)
+                    session.Deactivate();
 
-                if (PageObject != null)
-                    UIComponentResolver.CleanUpPageObject(PageObject);
+#warning Review sessions disposing.
+                foreach (var session in Sessions)
+                    session.Dispose();
 
-                UIComponentAccessChainScopeCache.Release();
-
-                if (_driver is not null)
-                {
-                    EventBus.Publish(new DriverDeInitEvent(_driver));
-
-                    if (disposeDriver)
-                        DisposeDriverSafely();
-                }
+                Sessions.Dispose();
 
                 EventBus.Publish(new AtataContextDeInitCompletedEvent(this));
+
+                EventBus.UnsubscribeAll();
+                State.Clear();
             });
 
         deinitializationStopwatch.Stop();
@@ -891,6 +766,7 @@ public sealed class AtataContext : IDisposable
 
         LogTestFinish(deinitializationStopwatch.Elapsed);
 
+        Variables.Clear();
         Log = null;
 
         if (Current == this)
@@ -903,7 +779,7 @@ public sealed class AtataContext : IDisposable
         if (PendingFailureAssertionResults.Any())
         {
             var pendingFailureAssertionResults = GetAndClearPendingFailureAssertionResults();
-            throw VerificationUtils.CreateAggregateAssertionException(pendingFailureAssertionResults);
+            throw VerificationUtils.CreateAggregateAssertionException(this, pendingFailureAssertionResults);
         }
     }
 
@@ -912,18 +788,6 @@ public sealed class AtataContext : IDisposable
         var copyOfPendingFailureAssertionResults = PendingFailureAssertionResults.ToArray();
         PendingFailureAssertionResults.Clear();
         return copyOfPendingFailureAssertionResults;
-    }
-
-    private void DisposeDriverSafely()
-    {
-        try
-        {
-            _driver.Dispose();
-        }
-        catch (Exception exception)
-        {
-            Log.Warn(exception, "Deinitialization of driver failed.");
-        }
     }
 
     private void LogTestFinish(TimeSpan deinitializationTime)
@@ -988,5 +852,21 @@ public sealed class AtataContext : IDisposable
             """);
 
         Log.Debug(messageBuilder.ToString());
+    }
+
+    /// <inheritdoc/>
+    public override string ToString()
+    {
+        var builder = new StringBuilder(GetType().Name)
+            .Append(" { Id=")
+            .Append(Id);
+
+        if (Test.FullName is not null)
+            builder.Append(", Test=")
+                .Append(Test.FullName);
+
+        builder.Append(" }");
+
+        return builder.ToString();
     }
 }

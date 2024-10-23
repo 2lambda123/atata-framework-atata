@@ -1,10 +1,11 @@
 ﻿using log4net.Appender;
 using log4net.Config;
 using log4net.Core;
+using log4net.Util;
 
 namespace Atata.IntegrationTests.Logging;
 
-public class Log4NetConsumerTests : UITestFixtureBase
+public class Log4NetConsumerTests : TestSuiteBase
 {
     private const string InfoLoggerName = "InfoLogger";
 
@@ -16,6 +17,10 @@ public class Log4NetConsumerTests : UITestFixtureBase
 
     private static string TraceLogFilePath =>
         Path.Combine(LogsDirectory, "Trace.log");
+
+    [OneTimeSetUp]
+    public void SetUpTestSuite() =>
+        SystemInfo.NullText = string.Empty;
 
     public override void TearDown()
     {
@@ -31,41 +36,47 @@ public class Log4NetConsumerTests : UITestFixtureBase
     [Test]
     public void WithDefaultConfiguration()
     {
+        // Arrange
         XmlConfigurator.Configure(ConfigFileInfo);
 
-        ConfigureBaseAtataContext()
-            .LogConsumers.AddLog4Net()
-            .Build();
+        var builder = ConfigureSessionlessAtataContext();
+        builder.LogConsumers.AddLog4Net();
+        var context = builder.Build();
 
+        // Act
         string traceTestMessage = Guid.NewGuid().ToString();
         string debugTestMessage = Guid.NewGuid().ToString();
         string infoTestMessage = Guid.NewGuid().ToString();
 
-        AtataContext.Current.Log.Trace(traceTestMessage);
-        AtataContext.Current.Log.Debug(debugTestMessage);
-        AtataContext.Current.Log.Info(infoTestMessage);
+        context.Log.Trace(traceTestMessage);
+        context.Log.Debug(debugTestMessage);
+        context.Log.Info(infoTestMessage);
 
+        // Assert
         AssertThatFileShouldContainText(TraceLogFilePath, traceTestMessage, debugTestMessage, infoTestMessage);
     }
 
     [Test]
     public void WithRepositoryUsingInfoLevel()
     {
+        // Arrange
         var logRepository = log4net.LogManager.CreateRepository(Guid.NewGuid().ToString());
         XmlConfigurator.Configure(logRepository, ConfigFileInfo);
 
-        ConfigureBaseAtataContext()
-            .LogConsumers.AddLog4Net(logRepository.Name, InfoLoggerName)
-            .Build();
+        var builder = ConfigureSessionlessAtataContext();
+        builder.LogConsumers.AddLog4Net(logRepository.Name, InfoLoggerName);
+        var context = builder.Build();
 
+        // Act
         string traceTestMessage = Guid.NewGuid().ToString();
         string debugTestMessage = Guid.NewGuid().ToString();
         string infoTestMessage = Guid.NewGuid().ToString();
 
-        AtataContext.Current.Log.Trace(traceTestMessage);
-        AtataContext.Current.Log.Debug(debugTestMessage);
-        AtataContext.Current.Log.Info(infoTestMessage);
+        context.Log.Trace(traceTestMessage);
+        context.Log.Debug(debugTestMessage);
+        context.Log.Info(infoTestMessage);
 
+        // Assert
         var fileAppenders = logRepository.GetAppenders().OfType<FileAppender>().ToArray();
         fileAppenders.Should().HaveCount(2);
 
@@ -79,23 +90,28 @@ public class Log4NetConsumerTests : UITestFixtureBase
     [Test]
     public void WithMissingRepository()
     {
-        string repositoryName = "MissingRepository";
+        // Arrange
+        var builder = ConfigureSessionlessAtataContext();
+        builder.LogConsumers.AddLog4Net("MissingRepository", InfoLoggerName);
 
+        // Act // Assert
         var exception = Assert.Throws<LogException>(() =>
-            ConfigureBaseAtataContext()
-                .LogConsumers.AddLog4Net(repositoryName, InfoLoggerName)
-                .Build());
+            builder.Build());
 
-        exception.Message.Should().Be($"Repository [{repositoryName}] is NOT defined.");
+        exception.Message.Should().Be("Repository [MissingRepository] is NOT defined.");
     }
 
     [Test]
     public void WithUnconfiguredRepository()
     {
+        // Arrange
         var repository = log4net.LogManager.CreateRepository(Guid.NewGuid().ToString());
 
-        ConfigureBaseAtataContext()
-            .LogConsumers.AddLog4Net(repository.Name, InfoLoggerName)
-            .Build();
+        var builder = ConfigureSessionlessAtataContext();
+        builder.LogConsumers.AddLog4Net(repository.Name, InfoLoggerName);
+
+        // Act // Assert
+        Assert.DoesNotThrow(() =>
+            builder.Build());
     }
 }

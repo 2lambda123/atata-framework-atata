@@ -1,6 +1,6 @@
 ﻿namespace Atata.IntegrationTests.Bahaviors;
 
-public class ClicksOnCellByIndexAttributeTests : UITestFixture
+public class ClicksOnCellByIndexAttributeTests : WebDriverSessionTestSuite
 {
     [Test]
     public void Execute()
@@ -12,7 +12,7 @@ public class ClicksOnCellByIndexAttributeTests : UITestFixture
 
         row.Click();
 
-        AtataContext.Current.AggregateAssert(() =>
+        WebDriverSession.Current.AggregateAssert(() =>
         {
             row.Cells[0].Should.Equal(0);
             row.Cells[1].Should.Equal(0);
@@ -22,7 +22,7 @@ public class ClicksOnCellByIndexAttributeTests : UITestFixture
         row.Metadata.Push(new ClicksOnCellByIndexAttribute(0));
         row.Click();
 
-        AtataContext.Current.AggregateAssert(() =>
+        WebDriverSession.Current.AggregateAssert(() =>
         {
             row.Cells[0].Should.Equal(1);
             row.Cells[1].Should.Equal(0);

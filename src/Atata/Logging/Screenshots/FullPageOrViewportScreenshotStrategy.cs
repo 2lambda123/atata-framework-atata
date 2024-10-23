@@ -6,10 +6,10 @@ using OpenQA.Selenium.Remote;
 namespace Atata;
 
 /// <summary>
-/// Represents the strategy that tries to take a full-page screenshot,
+/// Represents a <see cref="WebDriverSession"/> screenshot strategy that tries to take a full-page screenshot,
 /// when it cannot be taken, takes a screenshot of viewport area.
 /// </summary>
-public sealed class FullPageOrViewportScreenshotStrategy : IScreenshotStrategy
+public sealed class FullPageOrViewportScreenshotStrategy : IScreenshotStrategy<WebDriverSession>
 {
     private static readonly ConcurrentDictionary<string, bool> s_driverAliasSupportsCdpMap = new();
 
@@ -20,17 +20,17 @@ public sealed class FullPageOrViewportScreenshotStrategy : IScreenshotStrategy
         new FullPageOrViewportScreenshotStrategy();
 
     /// <inheritdoc/>
-    public FileContentWithExtension TakeScreenshot(AtataContext context)
+    public FileContentWithExtension TakeScreenshot(WebDriverSession session)
     {
-        var driver = context.Driver;
+        var driver = session.Driver;
 
         if (driver.Is<FirefoxDriver>())
-            return WebDriverFullPageScreenshotStrategy.Instance.TakeScreenshot(context);
+            return WebDriverFullPageScreenshotStrategy.Instance.TakeScreenshot(session);
 
-        string driverAlias = context.DriverAlias;
+        string driverAlias = session.DriverAlias;
 
         if (string.IsNullOrEmpty(driverAlias))
-            driverAlias = context.Driver.GetType().Name;
+            driverAlias = driver.GetType().Name;
 
         if (!s_driverAliasSupportsCdpMap.TryGetValue(driverAlias, out bool isCdpSupported))
         {
@@ -45,16 +45,16 @@ public sealed class FullPageOrViewportScreenshotStrategy : IScreenshotStrategy
         {
             try
             {
-                return CdpFullPageScreenshotStrategy.Instance.TakeScreenshot(context);
+                return CdpFullPageScreenshotStrategy.Instance.TakeScreenshot(session);
             }
             catch (Exception exception)
             {
                 s_driverAliasSupportsCdpMap[driverAlias] = false;
 
-                context.Log.Warn(exception, $"Failed to take a full-page screenshot via CDP. {nameof(ITakesScreenshot)}.{nameof(ITakesScreenshot.GetScreenshot)} will be used to take screenshot.");
+                session.Log.Warn(exception, $"Failed to take a full-page screenshot via CDP. {nameof(ITakesScreenshot)}.{nameof(ITakesScreenshot.GetScreenshot)} will be used to take screenshot.");
             }
         }
 
-        return WebDriverViewportScreenshotStrategy.Instance.TakeScreenshot(context);
+        return WebDriverViewportScreenshotStrategy.Instance.TakeScreenshot(session);
     }
 }

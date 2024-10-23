@@ -136,18 +136,18 @@ public abstract class MixedVerificationTests
 
     public sealed class Native : MixedVerificationTests
     {
-        protected override AtataContext BuildAtataContext() =>
-            AtataContext.Configure()
-                .UseDriverInitializationStage(AtataContextDriverInitializationStage.None)
-                .LogConsumers.AddNUnitTestContext()
-                .Build();
+        protected override AtataContext BuildAtataContext()
+        {
+            var builder = AtataContext.CreateBuilder(AtataContextScope.Test);
+            builder.LogConsumers.AddNUnitTestContext();
+            return builder.Build();
+        }
     }
 
     public sealed class NUnit : MixedVerificationTests
     {
         protected override AtataContext BuildAtataContext() =>
-            AtataContext.Configure()
-                .UseDriverInitializationStage(AtataContextDriverInitializationStage.None)
+            AtataContext.CreateBuilder(AtataContextScope.Test)
                 .UseAllNUnitFeatures()
                 .Build();
     }

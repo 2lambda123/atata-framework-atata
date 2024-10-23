@@ -1,6 +1,6 @@
 ﻿namespace Atata.IntegrationTests;
 
-public class ReportTests : UITestFixture
+public class ReportTests : WebDriverSessionTestSuite
 {
     [Test]
     public void BulkLog()
@@ -50,7 +50,7 @@ public class ReportTests : UITestFixture
             .Report.PageSnapshot()
             .Report.PageSnapshot("sometitle");
 
-        VerifyLastLogMessagesMatch(
+        VerifyLastLogNestingTextsWithMessagesMatch(
             minLogLevel: LogLevel.Trace,
             "^> Take page snapshot #01$",
             "^< Take page snapshot #01 \\(.*\\) >> \"01 Test page.mhtml\"$",
@@ -69,11 +69,11 @@ public class ReportTests : UITestFixture
         page.Report.Setup("TEST SETUP", x => x
             .IsTrue.Should.BeTrue());
 
-        VerifyLastLogMessagesMatch(
+        VerifyLastLogNestingTextsWithMessagesMatch(
             minLogLevel: LogLevel.Trace,
-            "^> TEST SETUP",
-            "^> Assert: IsTrue should be true$",
-            "^< Assert: IsTrue should be true",
+            "^> TEST SETUP$",
+            "^- > Assert: IsTrue should be true$",
+            "^- < Assert: IsTrue should be true",
             "^< TEST SETUP");
     }
 
@@ -87,11 +87,11 @@ public class ReportTests : UITestFixture
             await Task.CompletedTask;
         });
 
-        VerifyLastLogMessagesMatch(
+        VerifyLastLogNestingTextsWithMessagesMatch(
             minLogLevel: LogLevel.Trace,
-            "^> TEST SETUP",
-            "^> Assert: IsTrue should be true$",
-            "^< Assert: IsTrue should be true",
+            "^> TEST SETUP$",
+            "^- > Assert: IsTrue should be true$",
+            "^- < Assert: IsTrue should be true",
             "^< TEST SETUP");
     }
 
@@ -106,11 +106,11 @@ public class ReportTests : UITestFixture
         });
 
         result.Should().Be("ok");
-        VerifyLastLogMessagesMatch(
+        VerifyLastLogNestingTextsWithMessagesMatch(
             minLogLevel: LogLevel.Trace,
-            "^> TEST SETUP",
-            "^> Assert: IsTrue should be true$",
-            "^< Assert: IsTrue should be true",
+            "^> TEST SETUP$",
+            "^- > Assert: IsTrue should be true$",
+            "^- < Assert: IsTrue should be true",
             "^< TEST SETUP");
     }
 
@@ -121,11 +121,11 @@ public class ReportTests : UITestFixture
         page.Report.Step("TEST STEP", x => x
             .IsTrue.Should.BeTrue());
 
-        VerifyLastLogMessagesMatch(
+        VerifyLastLogNestingTextsWithMessagesMatch(
             minLogLevel: LogLevel.Trace,
             "^> TEST STEP$",
-            "^> Assert: IsTrue should be true$",
-            "^< Assert: IsTrue should be true",
+            "^- > Assert: IsTrue should be true$",
+            "^- < Assert: IsTrue should be true",
             "^< TEST STEP");
     }
 
@@ -139,11 +139,11 @@ public class ReportTests : UITestFixture
             await Task.CompletedTask;
         });
 
-        VerifyLastLogMessagesMatch(
+        VerifyLastLogNestingTextsWithMessagesMatch(
             minLogLevel: LogLevel.Trace,
             "^> TEST STEP$",
-            "^> Assert: IsTrue should be true$",
-            "^< Assert: IsTrue should be true",
+            "^- > Assert: IsTrue should be true$",
+            "^- < Assert: IsTrue should be true",
             "^< TEST STEP");
     }
 
@@ -158,24 +158,24 @@ public class ReportTests : UITestFixture
         });
 
         result.Should().Be("ok");
-        VerifyLastLogMessagesMatch(
+        VerifyLastLogNestingTextsWithMessagesMatch(
             minLogLevel: LogLevel.Trace,
             "^> TEST STEP$",
-            "^> Assert: IsTrue should be true$",
-            "^< Assert: IsTrue should be true",
+            "^- > Assert: IsTrue should be true$",
+            "^- < Assert: IsTrue should be true",
             "^< TEST STEP");
     }
 
-    public class Screenshot : UITestFixtureBase
+    public class Screenshot : WebDriverSessionTestSuiteBase
     {
         [Test]
         public void ViewportVsFullPage()
         {
-            var context = ConfigureBaseAtataContext().Build();
+            var context = ConfigureAtataContextWithWebDriverSession().Build();
 
-            var page = context.Go.To<ScrollablePage>();
+            var page = context.GetWebSession().Go.To<ScrollablePage>();
 
-            ValueProvider<long, FileSubject> TakeScreenshotAndReturnItsSize(ScreenshotKind kind)
+            long TakeScreenshotAndReturnItsSize(ScreenshotKind kind)
             {
                 page.Report.Screenshot(kind);
 
@@ -188,48 +188,49 @@ public class ReportTests : UITestFixture
                 return file.Length;
             }
 
-            var defaultScreenshotSize = TakeScreenshotAndReturnItsSize(ScreenshotKind.Default);
-            var viewportScreenshotSize = TakeScreenshotAndReturnItsSize(ScreenshotKind.Viewport);
-            var fullPageScreenshotSize = TakeScreenshotAndReturnItsSize(ScreenshotKind.FullPage);
+            long defaultScreenshotSize = TakeScreenshotAndReturnItsSize(ScreenshotKind.Default);
+            long viewportScreenshotSize = TakeScreenshotAndReturnItsSize(ScreenshotKind.Viewport);
+            long fullPageScreenshotSize = TakeScreenshotAndReturnItsSize(ScreenshotKind.FullPage);
 
-            viewportScreenshotSize.Should.Be(defaultScreenshotSize);
-            fullPageScreenshotSize.Should.BeGreater((long)(viewportScreenshotSize * 1.5));
+            viewportScreenshotSize.Should().Be(defaultScreenshotSize);
+            fullPageScreenshotSize.Should().BeGreaterThan((long)(viewportScreenshotSize * 1.5));
         }
 
         [Test]
         public void ViewportVsFullPage_ThroughConfiguration()
         {
-            ValueProvider<long, FileSubject> TakeScreenshotAndReturnItsSize(Action<ScreenshotsAtataContextBuilder> screenshotsConfigurationAction)
+            long TakeScreenshotAndReturnItsSize(Action<ScreenshotsWebDriverSessionOptions> screenshotsConfigurationAction)
             {
-                var builder = ConfigureBaseAtataContext();
-                screenshotsConfigurationAction?.Invoke(builder.Screenshots);
+                var builder = ConfigureAtataContextWithWebDriverSession(
+                    session => screenshotsConfigurationAction?.Invoke(session.Screenshots));
+
                 using var context = builder.Build();
 
                 string screenshotNameIndicator = Guid.NewGuid().ToString();
-                context.Go.To<ScrollablePage>()
+                context.GetWebDriverSession().Go.To<ScrollablePage>()
                     .Report.Screenshot(screenshotNameIndicator);
 
                 var file = context.Artifacts.Files
                     .Single(x => x.Name.Value.Contains(screenshotNameIndicator)).Should.Exist();
-                return file.Length;
+                return file.Length.Value;
             }
 
-            var viewportScreenshotSize = TakeScreenshotAndReturnItsSize(x => x.UseWebDriverViewportStrategy());
-            var fullPageScreenshotSize = TakeScreenshotAndReturnItsSize(x => x.UseFullPageOrViewportStrategy());
+            long viewportScreenshotSize = TakeScreenshotAndReturnItsSize(x => x.UseWebDriverViewportStrategy());
+            long fullPageScreenshotSize = TakeScreenshotAndReturnItsSize(x => x.UseFullPageOrViewportStrategy());
 
-            fullPageScreenshotSize.Should.BeGreater((long)(viewportScreenshotSize * 1.5));
+            fullPageScreenshotSize.Should().BeGreaterThan((long)(viewportScreenshotSize * 1.5));
         }
 
         [Test]
         public void FilesAndLogEntries()
         {
-            ConfigureBaseAtataContext().Build();
+            ConfigureAtataContextWithWebDriverSession().Build();
 
             Go.To(new OrdinaryPage("Test"))
                 .Report.Screenshot()
                 .Report.Screenshot("sometitle");
 
-            VerifyLastLogMessagesMatch(
+            VerifyLastLogNestingTextsWithMessagesMatch(
                 minLogLevel: LogLevel.Trace,
                 "^> Take screenshot #01$",
                 "^< Take screenshot #01 \\(.*\\) >> \"01 Test page.png\"$",
